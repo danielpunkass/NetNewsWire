@@ -35,6 +35,12 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	
 	private let keyboardManager = KeyboardManager(type: .sidebar)
 	override var keyCommands: [UIKeyCommand]? {
+		
+		// If the first responder is the WKWebView (PreloadedWebView) we don't want to supply any keyboard
+		// commands that the system is looking for by going up the responder chain. They will interfere with
+		// the WKWebViews built in hardware keyboard shortcuts, specifically the up and down arrow keys.
+		guard let current = UIResponder.currentFirstResponder, !(current is PreloadedWebView) else { return nil }
+		
 		return keyboardManager.keyCommands
 	}
 	
@@ -511,33 +517,21 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner {
 	@objc func expandSelectedRows(_ sender: Any?) {
 		if let indexPath = coordinator.currentFeedIndexPath, let containerID = dataSource.itemIdentifier(for: indexPath)?.containerID {
 			coordinator.expand(containerID)
-			self.applyChanges(animated: true) {
-				self.reloadAllVisibleCells()
-			}
 		}
 	}
 	
 	@objc func collapseSelectedRows(_ sender: Any?) {
 		if let indexPath = coordinator.currentFeedIndexPath, let containerID = dataSource.itemIdentifier(for: indexPath)?.containerID {
 			coordinator.collapse(containerID)
-			self.applyChanges(animated: true) {
-				self.reloadAllVisibleCells()
-			}
 		}
 	}
 	
 	@objc func expandAll(_ sender: Any?) {
 		coordinator.expandAllSectionsAndFolders()
-		self.applyChanges(animated: true) {
-			self.reloadAllVisibleCells()
-		}
 	}
 	
 	@objc func collapseAllExceptForGroupItems(_ sender: Any?) {
 		coordinator.collapseAllFolders()
-		self.applyChanges(animated: true) {
-			self.reloadAllVisibleCells()
-		}
 	}
 
 	@objc func markAllAsRead(_ sender: Any) {
@@ -917,11 +911,9 @@ private extension MasterFeedViewController {
 		if coordinator.isExpanded(sectionNode) {
 			headerView.disclosureExpanded = false
 			coordinator.collapse(sectionNode)
-			self.applyChanges(animated: true)
 		} else {
 			headerView.disclosureExpanded = true
 			coordinator.expand(sectionNode)
-			self.applyChanges(animated: true)
 		}
 	}
 
@@ -930,7 +922,6 @@ private extension MasterFeedViewController {
 			return
 		}
 		coordinator.expand(containerID)
-		applyChanges(animated: true)
 	}
 
 	func collapse(_ cell: MasterFeedTableViewCell) {
@@ -938,7 +929,6 @@ private extension MasterFeedViewController {
 			return
 		}
 		coordinator.collapse(containerID)
-		applyChanges(animated: true)
 	}
 
 	func makeWebFeedContextMenu(identifier: MasterFeedTableViewIdentifier, indexPath: IndexPath, includeDeleteRename: Bool) -> UIContextMenuConfiguration {
@@ -1321,7 +1311,7 @@ private extension MasterFeedViewController {
 		alertController.addAction(UIAlertAction(title: cancelTitle, style: .cancel))
 		
 		let deleteTitle = NSLocalizedString("Delete", comment: "Delete")
-		let deleteAction = UIAlertAction(title: deleteTitle, style: .default) { [weak self] action in
+		let deleteAction = UIAlertAction(title: deleteTitle, style: .destructive) { [weak self] action in
 			self?.delete(indexPath: indexPath, feedID: feedID)
 		}
 		alertController.addAction(deleteAction)

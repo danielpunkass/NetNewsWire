@@ -16,6 +16,8 @@ enum FontSize: Int {
 
 final class AppDefaults {
 	
+	static let defaultThemeName = "Default"
+	
 	static var shared = AppDefaults()
 	private init() {}
 
@@ -30,7 +32,7 @@ final class AppDefaults {
 		static let timelineGroupByFeed = "timelineGroupByFeed"
 		static let detailFontSize = "detailFontSize"
 		static let openInBrowserInBackground = "openInBrowserInBackground"
-		static let subscribeToFeedsInNetNewsWire = "subscribeToFeedsInNetNewsWire"
+		static let subscribeToFeedsInDefaultBrowser = "subscribeToFeedsInDefaultBrowser"
 		static let articleTextSize = "articleTextSize"
 		static let refreshInterval = "refreshInterval"
 		static let addWebFeedAccountID = "addWebFeedAccountID"
@@ -39,6 +41,7 @@ final class AppDefaults {
 		static let importOPMLAccountID = "importOPMLAccountID"
 		static let exportOPMLAccountID = "exportOPMLAccountID"
 		static let defaultBrowserID = "defaultBrowserID"
+		static let currentThemeName = "currentThemeName"
 
 		// Hidden prefs
 		static let showDebugMenu = "ShowDebugMenu"
@@ -107,12 +110,24 @@ final class AppDefaults {
 		}
 	}
 
-	var subscribeToFeedsInNetNewsWire: Bool {
+	// Special case for this default: store/retrieve it from the shared app group
+	// defaults, so that it can be resolved by the Safari App Extension.
+	var subscribeToFeedDefaults: UserDefaults {
+		if let appGroupID = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as? String,
+		   let appGroupDefaults = UserDefaults(suiteName: appGroupID) {
+			return appGroupDefaults
+		}
+		else {
+			return UserDefaults.standard
+		}
+	}
+
+	var subscribeToFeedsInDefaultBrowser: Bool {
 		get {
-			return AppDefaults.bool(for: Key.subscribeToFeedsInNetNewsWire)
+			return subscribeToFeedDefaults.bool(forKey: Key.subscribeToFeedsInDefaultBrowser)
 		}
 		set {
-			AppDefaults.setBool(for: Key.subscribeToFeedsInNetNewsWire, newValue)
+			subscribeToFeedDefaults.set(newValue, forKey: Key.subscribeToFeedsInDefaultBrowser)
 		}
 	}
 
@@ -194,6 +209,15 @@ final class AppDefaults {
 		}
 		set {
 			AppDefaults.setString(for: Key.defaultBrowserID, newValue)
+		}
+	}
+	
+	var currentThemeName: String? {
+		get {
+			return AppDefaults.string(for: Key.currentThemeName)
+		}
+		set {
+			AppDefaults.setString(for: Key.currentThemeName, newValue)
 		}
 	}
 	
@@ -297,10 +321,10 @@ final class AppDefaults {
 										Key.detailFontSize: FontSize.medium.rawValue,
 										Key.timelineSortDirection: ComparisonResult.orderedDescending.rawValue,
 										Key.timelineGroupByFeed: false,
-										Key.subscribeToFeedsInNetNewsWire: true,
 										"NSScrollViewShouldScrollUnderTitlebar": false,
 										Key.refreshInterval: RefreshInterval.everyHour.rawValue,
-										Key.showDebugMenu: showDebugMenu]
+										Key.showDebugMenu: showDebugMenu,
+										Key.currentThemeName: Self.defaultThemeName]
 
 		UserDefaults.standard.register(defaults: defaults)
 

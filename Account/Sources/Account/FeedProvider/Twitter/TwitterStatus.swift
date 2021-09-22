@@ -48,7 +48,7 @@ final class TwitterStatus: Codable {
 	
 	func renderAsHTML(topLevel: Bool = true) -> String {
 		if let retweetedStatus = retweetedStatus {
-			return renderAsRetweetHTML(retweetedStatus, topLevel: topLevel)
+			return renderAsRetweetHTML(retweetedStatus)
 		}
 		if let quotedStatus = quotedStatus {
 			return renderAsQuoteHTML(quotedStatus, topLevel: topLevel)
@@ -91,8 +91,8 @@ private extension TwitterStatus {
 					}
 				}
 				
-				let offsetStartIndex = entity.startIndex - unicodeScalarOffset
-				let offsetEndIndex = entity.endIndex - unicodeScalarOffset
+				let offsetStartIndex = unicodeScalarOffset < entity.startIndex ? entity.startIndex - unicodeScalarOffset : entity.startIndex
+				let offsetEndIndex = unicodeScalarOffset < entity.endIndex ? entity.endIndex - unicodeScalarOffset : entity.endIndex
 				
 				let entityStartIndex = text.index(text.startIndex, offsetBy: offsetStartIndex, limitedBy: text.endIndex) ?? text.startIndex
 				let entityEndIndex = text.index(text.startIndex, offsetBy: offsetEndIndex, limitedBy: text.endIndex) ?? text.endIndex
@@ -115,7 +115,7 @@ private extension TwitterStatus {
 			}
 			
 			if prevIndex < displayEndIndex {
-				html += String(text[prevIndex..<displayEndIndex])
+				html += String(text[prevIndex..<displayEndIndex]).replacingOccurrences(of: "\n", with: "<br>")
 			}
 			
 			return html
@@ -139,26 +139,17 @@ private extension TwitterStatus {
 	
 	func renderAsOriginalHTML(topLevel: Bool) -> String {
 		var html = renderAsTweetHTML(self, topLevel: topLevel)
-		if topLevel {
-			html += extendedEntities?.renderAsHTML() ?? ""
-			html += retweetedStatus?.extendedEntities?.renderAsHTML() ?? ""
-			html += quotedStatus?.extendedEntities?.renderAsHTML() ?? ""
-		}
+		html += extendedEntities?.renderAsHTML() ?? ""
 		return html
 	}
 	
-	func renderAsRetweetHTML(_ status: TwitterStatus, topLevel: Bool) -> String {
+	func renderAsRetweetHTML(_ status: TwitterStatus) -> String {
 		var html = "<blockquote>"
 		if let userHTML = status.user?.renderAsHTML() {
 			html += userHTML
 		}
 		html += status.renderAsHTML(topLevel: false)
 		html += "</blockquote>"
-		if topLevel {
-			html += status.extendedEntities?.renderAsHTML() ?? ""
-			html += status.retweetedStatus?.extendedEntities?.renderAsHTML() ?? ""
-			html += status.quotedStatus?.extendedEntities?.renderAsHTML() ?? ""
-		}
 		return html
 	}
 	
@@ -172,11 +163,6 @@ private extension TwitterStatus {
 		}
 		html += quotedStatus.renderAsHTML(topLevel: false)
 		html += "</blockquote>"
-		if topLevel {
-			html += quotedStatus.extendedEntities?.renderAsHTML() ?? ""
-			html += quotedStatus.retweetedStatus?.extendedEntities?.renderAsHTML() ?? ""
-			html += quotedStatus.quotedStatus?.extendedEntities?.renderAsHTML() ?? ""
-		}
 		return html
 	}
 	

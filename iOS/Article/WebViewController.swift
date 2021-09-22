@@ -63,14 +63,16 @@ class WebViewController: UIViewController {
 	
 	let scrollPositionQueue = CoalescingQueue(name: "Article Scroll Position", interval: 0.3, maxInterval: 0.3)
 	var windowScrollY = 0
-	
+	private var restoreWindowScrollY: Int?
+
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
 		NotificationCenter.default.addObserver(self, selector: #selector(webFeedIconDidBecomeAvailable(_:)), name: .WebFeedIconDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(avatarDidBecomeAvailable(_:)), name: .AvatarDidBecomeAvailable, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(faviconDidBecomeAvailable(_:)), name: .FaviconDidBecomeAvailable, object: nil)
-		
+		NotificationCenter.default.addObserver(self, selector: #selector(currentArticleThemeDidChangeNotification(_:)), name: .CurrentArticleThemeDidChangeNotification, object: nil)
+
 		// Configure the tap zones
 		configureTopShowBarsView()
 		configureBottomShowBarsView()
@@ -100,6 +102,10 @@ class WebViewController: UIViewController {
 		reloadArticleImage()
 	}
 
+	@objc func currentArticleThemeDidChangeNotification(_ note: Notification) {
+		loadWebView()
+	}
+
 	// MARK: Actions
 	
 	@objc func showBars(_ sender: Any) {
@@ -122,6 +128,27 @@ class WebViewController: UIViewController {
 			}
 		}
 		
+	}
+	
+	func setScrollPosition(isShowingExtractedArticle: Bool, articleWindowScrollY: Int) {
+		if isShowingExtractedArticle {
+			switch articleExtractor?.state {
+			case .ready:
+				restoreWindowScrollY = articleWindowScrollY
+				startArticleExtractor()
+			case .complete:
+				windowScrollY = articleWindowScrollY
+				loadWebView()
+			case .processing:
+				restoreWindowScrollY = articleWindowScrollY
+			default:
+				restoreWindowScrollY = articleWindowScrollY
+				startArticleExtractor()
+			}
+		} else {
+			windowScrollY = articleWindowScrollY
+			loadWebView()
+		}
 	}
 	
 	func focus() {
@@ -250,8 +277,12 @@ class WebViewController: UIViewController {
 
 	func openInAppBrowser() {
 		guard let url = article?.preferredURL else { return }
-		let vc = SFSafariViewController(url: url)
-		present(vc, animated: true)
+		if AppDefaults.shared.useSystemBrowser {
+			UIApplication.shared.open(url, options: [:])
+		} else {
+			let vc = SFSafariViewController(url: url)
+			present(vc, animated: true)
+		}
 	}
 }
 
@@ -268,6 +299,9 @@ extension WebViewController: ArticleExtractorDelegate {
 	func articleExtractionDidComplete(extractedArticle: ExtractedArticle) {
 		if articleExtractor?.state != .cancelled {
 			self.extractedArticle = extractedArticle
+			if let restoreWindowScrollY = restoreWindowScrollY {
+				windowScrollY = restoreWindowScrollY
+			}
 			isShowingExtractedArticle = true
 			loadWebView()
 			articleExtractorButtonState = .on
@@ -344,16 +378,18 @@ extension WebViewController: WKNavigationDelegate {
 			let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
 			if components?.scheme == "http" || components?.scheme == "https" {
 				decisionHandler(.cancel)
-				
-				// If the resource cannot be opened with an installed app, present the web view.
-				UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { didOpen in
-					assert(Thread.isMainThread)
-					guard didOpen == false else {
-						return
+				if AppDefaults.shared.useSystemBrowser {
+					UIApplication.shared.open(url, options: [:])
+				} else {
+					UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { didOpen in
+						guard didOpen == false else {
+							return
+						}
+						let vc = SFSafariViewController(url: url)
+						self.present(vc, animated: true)
 					}
-					let vc = SFSafariViewController(url: url)
-					self.present(vc, animated: true)
 				}
+				
 			} else if components?.scheme == "mailto" {
 				decisionHandler(.cancel)
 				
@@ -392,12 +428,23 @@ extension WebViewController: WKNavigationDelegate {
 // MARK: WKUIDelegate
 
 extension WebViewController: WKUIDelegate {
+	
 	func webView(_ webView: WKWebView, contextMenuForElement elementInfo: WKContextMenuElementInfo, willCommitWithAnimator animator: UIContextMenuInteractionCommitAnimating) {
 		// We need to have at least an unimplemented WKUIDelegate assigned to the WKWebView.  This makes the
 		// link preview launch Safari when the link preview is tapped.  In theory, you shoud be able to get
 		// the link from the elementInfo above and transition to SFSafariViewController instead of launching
 		// Safari.  As the time of this writing, the link in elementInfo is always nil.  ¯\_(ツ)_/¯
 	}
+
+	func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+		guard let url = navigationAction.request.url else {
+			return nil
+		}
+		
+		openURL(url)
+		return nil
+	}
+	
 }
 
 // MARK: WKScriptMessageHandler
@@ -526,23 +573,23 @@ private extension WebViewController {
 	func renderPage(_ webView: PreloadedWebView?) {
 		guard let webView = webView else { return }
 		 
-		let style = ArticleStylesManager.shared.currentStyle
+		let theme = ArticleThemesManager.shared.currentTheme
 		let rendering: ArticleRenderer.Rendering
 
 		if let articleExtractor = articleExtractor, articleExtractor.state == .processing {
-			rendering = ArticleRenderer.loadingHTML(style: style)
+			rendering = ArticleRenderer.loadingHTML(theme: theme)
 		} else if let articleExtractor = articleExtractor, articleExtractor.state == .failedToParse, let article = article {
-			rendering = ArticleRenderer.articleHTML(article: article, style: style)
+			rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
 		} else if let article = article, let extractedArticle = extractedArticle {
 			if isShowingExtractedArticle {
-				rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, style: style)
+				rendering = ArticleRenderer.articleHTML(article: article, extractedArticle: extractedArticle, theme: theme)
 			} else {
-				rendering = ArticleRenderer.articleHTML(article: article, style: style)
+				rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
 			}
 		} else if let article = article {
-			rendering = ArticleRenderer.articleHTML(article: article, style: style)
+			rendering = ArticleRenderer.articleHTML(article: article, theme: theme)
 		} else {
-			rendering = ArticleRenderer.noSelectionHTML(style: style)
+			rendering = ArticleRenderer.noSelectionHTML(theme: theme)
 		}
 		
 		let substitutions = [
@@ -569,6 +616,7 @@ private extension WebViewController {
 	}
 	
 	func startArticleExtractor() {
+		guard articleExtractor == nil else { return }
 		if let link = article?.preferredLink, let extractor = ArticleExtractor(link) {
 			extractor.delegate = self
 			extractor.process()
@@ -745,7 +793,19 @@ private extension WebViewController {
 			self?.showActivityDialog()
 		}
 	}
-	
+
+	// If the resource cannot be opened with an installed app, present the web view.
+	func openURL(_ url: URL) {
+		UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { didOpen in
+			assert(Thread.isMainThread)
+			guard didOpen == false else {
+				return
+			}
+			let vc = SFSafariViewController(url: url)
+			self.present(vc, animated: true)
+		}
+	}
+
 }
 
 // MARK: Find in Article

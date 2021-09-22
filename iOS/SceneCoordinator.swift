@@ -72,7 +72,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	private var fetchSerialNumber = 0
 	private let fetchRequestQueue = FetchRequestQueue()
 	
-	private var animatingChanges = false
 	private var expandedTable = Set<ContainerIdentifier>()
 	private var readFilterEnabledTable = [FeedIdentifier: Bool]()
 	private var shadowTable = [[Node]]()
@@ -110,8 +109,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	var stateRestorationActivity: NSUserActivity {
 		let activity = activityManager.stateRestorationActivity
-		var userInfo = activity.userInfo == nil ? [AnyHashable: Any]() : activity.userInfo
-		userInfo![UserInfoKey.windowState] = windowState()
+		var userInfo = activity.userInfo ?? [AnyHashable: Any]()
+		
+		userInfo[UserInfoKey.windowState] = windowState()
+		
+		let articleState = articleViewController?.currentState
+		userInfo[UserInfoKey.isShowingExtractedArticle] = articleState?.isShowingExtractedArticle ?? false
+		userInfo[UserInfoKey.articleWindowScrollY] = articleState?.windowScrollY ?? 0
+
 		activity.userInfo = userInfo
 		return activity
 	}
@@ -156,6 +161,21 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	private var exceptionArticleFetcher: ArticleFetcher?
 	private(set) var timelineFeed: Feed?
+	
+	// We have to defer the selecting of the feed and article due to a behavior (bug?) in iOS 15.
+	// iOS 15 will crash if you are in landscape on an iPad and are restoring article state. We
+	// have no idea why this is, but it happens when you do a select on a UITableView right before
+	// doing a diffable datasource apply.
+	//
+	// Steps to recreate:
+	//
+	// * Try to relaunch the app in the sim.
+	// * Press the Stop button in Xcode
+	// * Wait for all the app suspension activities to complete (widget data, etc)
+	// * Once the article has loaded, navigate to the iPad home screen
+	// * While in landscape, select a feed and then select an article
+	// * Install a fresh build of NNW to an iPad simulator (11 or 12.9' will do) running iPadOS 15
+	private var deferredFeedAndArticleSelect: (feedIdentifier: FeedIdentifier, articleID: String, isShowingExtractedArticle: Bool, articleWindowScrollY: Int)?
 	
 	var timelineMiddleIndexPath: IndexPath?
 	
@@ -303,7 +323,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(accountDidDownloadArticles(_:)), name: .AccountDidDownloadArticles, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
-
+		NotificationCenter.default.addObserver(self, selector: #selector(importDownloadedTheme(_:)), name: .didEndDownloadingTheme, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(themeDownloadDidFail(_:)), name: .didFailToImportThemeWithError, object: nil)
 	}
 	
 	func start(for size: CGSize) -> UIViewController {
@@ -436,8 +457,16 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		guard notification.object is AccountManager else {
 			return
 		}
-		rebuildBackingStores()
-		treeControllerDelegate.resetFilterExceptions()
+		
+		rebuildBackingStores(initialLoad: true, completion:  {
+			if let (feedIdentifier, articleID, isShowingExtractedArticle, articleWindowScrollY) = self.deferredFeedAndArticleSelect,
+			   let feedNode = self.nodeFor(feedID: feedIdentifier),
+			   let feedIndexPath = self.indexPathFor(feedNode) {
+				self.selectFeed(indexPath: feedIndexPath) {
+					self.selectArticleInCurrentFeed(articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
+				}
+			}
+		})
 	}
 
 	@objc func unreadCountDidChange(_ note: Notification) {
@@ -559,6 +588,27 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			queueFetchAndMergeArticles()
 		}
 	}
+	
+	@objc func importDownloadedTheme(_ note: Notification) {
+		guard let userInfo = note.userInfo,
+			let url = userInfo["url"] as? URL else {
+			return
+		}
+		
+		DispatchQueue.main.async {
+			self.importTheme(filename: url.path)
+		}
+	}
+	
+	@objc func themeDownloadDidFail(_ note: Notification) {
+		guard let userInfo = note.userInfo,
+			  let error = userInfo["error"] as? Error else {
+				  return
+			  }
+		DispatchQueue.main.async {
+			self.rootSplitViewController.presentError(error, dismiss: nil)
+		}
+	}
 
 	// MARK: API
 	
@@ -677,9 +727,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 	func expand(_ containerID: ContainerIdentifier) {
 		markExpanded(containerID)
-		animatingChanges = true
-		rebuildShadowTable()
-		animatingChanges = false
+		rebuildBackingStores()
 	}
 	
 	func expand(_ node: Node) {
@@ -696,16 +744,12 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 				}
 			}
 		}
-		animatingChanges = true
-		rebuildShadowTable()
-		animatingChanges = false
+		rebuildBackingStores()
 	}
 	
 	func collapse(_ containerID: ContainerIdentifier) {
 		unmarkExpanded(containerID)
-		animatingChanges = true
-		rebuildShadowTable()
-		animatingChanges = false
+		rebuildBackingStores()
 		clearTimelineIfNoLongerAvailable()
 	}
 	
@@ -716,16 +760,13 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	func collapseAllFolders() {
 		for sectionNode in treeController.rootNode.childNodes {
-			unmarkExpanded(sectionNode)
 			for topLevelNode in sectionNode.childNodes {
 				if topLevelNode.representedObject is Folder {
 					unmarkExpanded(topLevelNode)
 				}
 			}
 		}
-		animatingChanges = true
-		rebuildShadowTable()
-		animatingChanges = false
+		rebuildBackingStores()
 		clearTimelineIfNoLongerAvailable()
 	}
 	
@@ -818,7 +859,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 	}
 
-	func selectArticle(_ article: Article?, animations: Animations = []) {
+	func selectArticle(_ article: Article?, animations: Animations = [], isShowingExtractedArticle: Bool? = nil, articleWindowScrollY: Int? = nil) {
 		guard article != currentArticle else { return }
 		
 		currentArticle = article
@@ -848,6 +889,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 
 		masterTimelineViewController?.updateArticleSelection(animations: animations)
 		currentArticleViewController.article = article
+		if let isShowingExtractedArticle = isShowingExtractedArticle, let articleWindowScrollY = articleWindowScrollY {
+			currentArticleViewController.restoreScrollPosition = (isShowingExtractedArticle, articleWindowScrollY)
+		}
 	}
 	
 	func beginSearching() {
@@ -1266,11 +1310,21 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		rootSplitViewController.preferredDisplayMode = rootSplitViewController.displayMode == .allVisible ? .primaryHidden : .allVisible
 	}
 	
-	func selectArticleInCurrentFeed(_ articleID: String) {
+	func selectArticleInCurrentFeed(_ articleID: String, isShowingExtractedArticle: Bool? = nil, articleWindowScrollY: Int? = nil) {
 		if let article = self.articles.first(where: { $0.articleID == articleID }) {
-			self.selectArticle(article)
+			self.selectArticle(article, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 		}
 	}
+	
+	func importTheme(filename: String) {
+		do {
+			try ArticleThemeImporter.importTheme(controller: rootSplitViewController, filename: filename)
+		} catch {
+			NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error" : error])
+		}
+		
+	}
+	
 }
 
 // MARK: UISplitViewControllerDelegate
@@ -1446,7 +1500,7 @@ private extension SceneCoordinator {
 	}
 	
 	func rebuildBackingStores(initialLoad: Bool = false, updateExpandedNodes: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
-		if !animatingChanges && !BatchUpdate.shared.isPerforming {
+		if !BatchUpdate.shared.isPerforming {
 			
 			addToFilterExeptionsIfNecessary(timelineFeed)
 			treeController.rebuild()
@@ -2177,14 +2231,14 @@ private extension SceneCoordinator {
 		guard let userInfo = userInfo else { return }
 		
 		guard let articlePathUserInfo = userInfo[UserInfoKey.articlePath] as? [AnyHashable : Any],
-			let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
-			let accountName = articlePathUserInfo[ArticlePathKey.accountName] as? String,
-			let webFeedID = articlePathUserInfo[ArticlePathKey.webFeedID] as? String,
-			let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String,
-			let accountNode = findAccountNode(accountID: accountID, accountName: accountName),
-			let account = accountNode.representedObject as? Account else {
-				return
-		}
+			  let accountID = articlePathUserInfo[ArticlePathKey.accountID] as? String,
+			  let accountName = articlePathUserInfo[ArticlePathKey.accountName] as? String,
+			  let webFeedID = articlePathUserInfo[ArticlePathKey.webFeedID] as? String,
+			  let articleID = articlePathUserInfo[ArticlePathKey.articleID] as? String,
+			  let accountNode = findAccountNode(accountID: accountID, accountName: accountName),
+			  let account = accountNode.representedObject as? Account else {
+				  return
+			  }
 		
 		exceptionArticleFetcher = SingleArticleFetcher(account: account, articleID: articleID)
 
@@ -2203,44 +2257,29 @@ private extension SceneCoordinator {
 	
 	func restoreFeedSelection(_ userInfo: [AnyHashable : Any], accountID: String, webFeedID: String, articleID: String) -> Bool {
 		guard let feedIdentifierUserInfo = userInfo[UserInfoKey.feedIdentifier] as? [AnyHashable : AnyHashable],
-			let feedIdentifier = FeedIdentifier(userInfo: feedIdentifierUserInfo) else {
-				return false
-		}
+			  let feedIdentifier = FeedIdentifier(userInfo: feedIdentifierUserInfo),
+			  let isShowingExtractedArticle = userInfo[UserInfoKey.isShowingExtractedArticle] as? Bool,
+			  let articleWindowScrollY = userInfo[UserInfoKey.articleWindowScrollY] as? Int else {
+				  return false
+			  }
 
 		switch feedIdentifier {
 
-		case .smartFeed:
-			guard let smartFeed = SmartFeedsController.shared.find(by: feedIdentifier) else { return false }
-			if let indexPath = indexPathFor(smartFeed) {
-				selectFeed(indexPath: indexPath) {
-					self.selectArticleInCurrentFeed(articleID)
-				}
-				treeControllerDelegate.addFilterException(feedIdentifier)
-				return true
-			}
-		
 		case .script:
 			return false
-		
-		case .folder(let accountID, let folderName):
-			guard let accountNode = findAccountNode(accountID: accountID),
-				let folderNode = findFolderNode(folderName: folderName, beginningAt: accountNode) else {
-					return false
-			}
-			let found = selectFeedAndArticle(feedNode: folderNode, articleID: articleID)
+
+		case .smartFeed, .folder:
+			let found = deferSelectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 			if found {
 				treeControllerDelegate.addFilterException(feedIdentifier)
 			}
 			return found
 		
 		case .webFeed:
-			guard let accountNode = findAccountNode(accountID: accountID), let webFeedNode = findWebFeedNode(webFeedID: webFeedID, beginningAt: accountNode) else {
-				return false
-			}
-			let found = selectFeedAndArticle(feedNode: webFeedNode, articleID: articleID)
+			let found = deferSelectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 			if found {
 				treeControllerDelegate.addFilterException(feedIdentifier)
-				if let folder = webFeedNode.parent?.representedObject as? Folder, let folderFeedID = folder.feedID {
+				if let webFeedNode = nodeFor(feedID: feedIdentifier), let folder = webFeedNode.parent?.representedObject as? Folder, let folderFeedID = folder.feedID {
 					treeControllerDelegate.addFilterException(folderFeedID)
 				}
 			}
@@ -2248,7 +2287,6 @@ private extension SceneCoordinator {
 			
 		}
 		
-		return false
 	}
 	
 	func findAccountNode(accountID: String, accountName: String? = nil) -> Node? {
@@ -2277,14 +2315,18 @@ private extension SceneCoordinator {
 		return nil
 	}
 	
-	func selectFeedAndArticle(feedNode: Node, articleID: String) -> Bool {
-		if let feedIndexPath = indexPathFor(feedNode) {
+	func deferSelectFeedAndArticle(feedIdentifier: FeedIdentifier, articleID: String, isShowingExtractedArticle: Bool, articleWindowScrollY: Int) -> Bool {
+		guard let feedNode = nodeFor(feedID: feedIdentifier), let feedIndexPath = indexPathFor(feedNode) else { return false }
+		
+		if AccountManager.shared.isUnreadCountsInitialized {
 			selectFeed(indexPath: feedIndexPath) {
-				self.selectArticleInCurrentFeed(articleID)
+				self.selectArticleInCurrentFeed(articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 			}
-			return true
+		} else {
+			deferredFeedAndArticleSelect = (feedIdentifier, articleID, isShowingExtractedArticle, articleWindowScrollY)
 		}
-		return false
+		
+		return true
 	}
 	
 }

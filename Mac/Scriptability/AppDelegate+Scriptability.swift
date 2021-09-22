@@ -18,6 +18,7 @@
 
 import Foundation
 import Articles
+import Zip
 
 protocol AppDelegateAppleEvents {
     func installAppleEventHandlers()
@@ -40,9 +41,44 @@ extension AppDelegate : AppDelegateAppleEvents {
     
     @objc func getURL(_ event: NSAppleEventDescriptor, _ withReplyEvent: NSAppleEventDescriptor) {
 
-        guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue else {
+        guard var urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue else {
             return
         }
+
+		// Handle themes
+		if urlString.hasPrefix("netnewswire://theme") {
+			guard let comps = URLComponents(string: urlString),
+				  let queryItems = comps.queryItems,
+				  let themeURLString = queryItems.first(where: { $0.name == "url" })?.value else {
+					  return
+				  }
+			
+			if let themeURL = URL(string: themeURLString) {
+				let request = URLRequest(url: themeURL)
+				let task = URLSession.shared.downloadTask(with: request) { location, response, error in
+					guard let location = location else {
+						return
+					}
+					
+					do {
+						try ArticleThemeDownloader.shared.handleFile(at: location)
+					} catch {
+						NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error": error])
+					}
+				}
+				task.resume()
+			}
+			return
+		
+		}
+		
+		
+		// Special case URL with specific scheme handler x-netnewswire-feed: intended to ensure we open
+		// it regardless of which news reader may be set as the default
+		let nnwScheme = "x-netnewswire-feed:"
+		if urlString.hasPrefix(nnwScheme) {
+			urlString = urlString.replacingOccurrences(of: nnwScheme, with: "feed:")
+		}
 
         let normalizedURLString = urlString.normalizedURL
         if !normalizedURLString.mayBeURL {
