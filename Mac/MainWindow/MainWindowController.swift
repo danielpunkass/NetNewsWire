@@ -318,7 +318,7 @@ class MainWindowController : NSWindowController, NSUserInterfaceValidations {
 	}
 
 	@IBAction func copyExternalURL(_ sender: Any?) {
-		if let link = oneSelectedArticle?.externalURL {
+		if let link = oneSelectedArticle?.externalLink {
 			URLPasteboardWriter.write(urlString: link, to: .general)
 		}
 	}
@@ -1077,7 +1077,7 @@ private extension MainWindowController {
 	}
 	
 	func canCopyExternalURL() -> Bool {
-		return oneSelectedArticle?.externalURL != nil && oneSelectedArticle?.externalURL != currentLink
+		return oneSelectedArticle?.externalLink != nil && oneSelectedArticle?.externalLink != currentLink
 	}
 
 	func canGoToNextUnread(wrappingToTop wrapping: Bool = false) -> Bool {
@@ -1408,7 +1408,7 @@ private extension MainWindowController {
 		let sidebarWidth: Int = widths[0]
 		let timelineWidth: Int = widths[1]
 
-		// Make sure the detail view has its mimimum thickness, at least.
+		// Make sure the detail view has its minimum thickness, at least.
 		if windowWidth < sidebarWidth + dividerThickness + timelineWidth + dividerThickness + MainWindowController.detailViewMinimumThickness {
 			return
 		}
@@ -1437,22 +1437,22 @@ private extension MainWindowController {
 		let menu = NSMenu()
 		
 		let newWebFeedItem = NSMenuItem()
-		newWebFeedItem.title = NSLocalizedString("New Web Feed", comment: "New Web Feed")
+		newWebFeedItem.title = NSLocalizedString("New Web Feed…", comment: "New Web Feed")
 		newWebFeedItem.action = Selector(("showAddWebFeedWindow:"))
 		menu.addItem(newWebFeedItem)
 		
 		let newRedditFeedItem = NSMenuItem()
-		newRedditFeedItem.title = NSLocalizedString("New Reddit Feed", comment: "New Reddit Feed")
+		newRedditFeedItem.title = NSLocalizedString("New Reddit Feed…", comment: "New Reddit Feed")
 		newRedditFeedItem.action = Selector(("showAddRedditFeedWindow:"))
 		menu.addItem(newRedditFeedItem)
 		
 		let newTwitterFeedItem = NSMenuItem()
-		newTwitterFeedItem.title = NSLocalizedString("New Twitter Feed", comment: "New Twitter Feed")
+		newTwitterFeedItem.title = NSLocalizedString("New Twitter Feed…", comment: "New Twitter Feed")
 		newTwitterFeedItem.action = Selector(("showAddTwitterFeedWindow:"))
 		menu.addItem(newTwitterFeedItem)
 		
 		let newFolderFeedItem = NSMenuItem()
-		newFolderFeedItem.title = NSLocalizedString("New Folder", comment: "New Folder")
+		newFolderFeedItem.title = NSLocalizedString("New Folder…", comment: "New Folder")
 		newFolderFeedItem.action = Selector(("showAddFolderWindow:"))
 		menu.addItem(newFolderFeedItem)
 		

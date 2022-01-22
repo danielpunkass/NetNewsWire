@@ -17,20 +17,34 @@ extension UIViewController {
 			presentAccountError(accountError, dismiss: dismiss)
 		} else if let decodingError = error as? DecodingError {
 			let errorTitle = NSLocalizedString("Error", comment: "Error")
+			var informativeText: String = ""
 			switch decodingError {
 			case .typeMismatch(let type, _):
-				let str = "Type '\(type)' mismatch."
-				presentError(title: errorTitle, message: str, dismiss: dismiss)
+				let localizedError = NSLocalizedString("This theme cannot be used because the the type—“%@”—is mismatched in the Info.plist", comment: "Type mismatch")
+				informativeText = NSString.localizedStringWithFormat(localizedError as NSString, type as! CVarArg) as String
+				presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
 			case .valueNotFound(let value, _):
-				let str = "Value '\(value)' not found."
-				presentError(title: errorTitle, message: str, dismiss: dismiss)
+				let localizedError = NSLocalizedString("This theme cannot be used because the the value—“%@”—is not found in the Info.plist.", comment: "Decoding value missing")
+				informativeText = NSString.localizedStringWithFormat(localizedError as NSString, value as! CVarArg) as String
+				presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
 			case .keyNotFound(let codingKey, _):
-				let str = "Key '\(codingKey.stringValue)' not found."
-				presentError(title: errorTitle, message: str, dismiss: dismiss)
-			case .dataCorrupted( _):
-				presentError(title: errorTitle, message: error.localizedDescription, dismiss: dismiss)
+				let localizedError = NSLocalizedString("This theme cannot be used because the the key—“%@”—is not found in the Info.plist.", comment: "Decoding key missing")
+				informativeText = NSString.localizedStringWithFormat(localizedError as NSString, codingKey.stringValue) as String
+				presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
+			case .dataCorrupted(let context):
+				guard let error = context.underlyingError as NSError?,
+					  let debugDescription = error.userInfo["NSDebugDescription"] as? String else {
+					informativeText = error.localizedDescription
+					presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
+					return
+				}
+				let localizedError = NSLocalizedString("This theme cannot be used because of data corruption in the Info.plist. %@.", comment: "Decoding key missing")
+				informativeText = NSString.localizedStringWithFormat(localizedError as NSString, debugDescription) as String
+				presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
+				
 			default:
-				presentError(title: errorTitle, message: error.localizedDescription, dismiss: dismiss)
+				informativeText = error.localizedDescription
+				presentError(title: errorTitle, message: informativeText, dismiss: dismiss)
 			}
 		} else {
 			let errorTitle = NSLocalizedString("Error", comment: "Error")
@@ -46,7 +60,7 @@ private extension UIViewController {
 		let title = NSLocalizedString("Account Error", comment: "Account Error")
 		let alertController = UIAlertController(title: title, message: error.localizedDescription, preferredStyle: .alert)
 		
-		if error.acount?.type == .feedbin {
+		if error.account?.type == .feedbin {
 
 			let credentialsTitle = NSLocalizedString("Update Credentials", comment: "Update Credentials")
 			let credentialsAction = UIAlertAction(title: credentialsTitle, style: .default) { [weak self] _ in
@@ -55,7 +69,7 @@ private extension UIViewController {
 				let navController = UIStoryboard.account.instantiateViewController(withIdentifier: "FeedbinAccountNavigationViewController") as! UINavigationController
 				navController.modalPresentationStyle = .formSheet
 				let addViewController = navController.topViewController as! FeedbinAccountViewController
-				addViewController.account = error.acount
+				addViewController.account = error.account
 				self?.present(navController, animated: true)
 			}
 			

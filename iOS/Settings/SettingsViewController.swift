@@ -66,6 +66,7 @@ class SettingsViewController: UITableViewController {
 		} else {
 			refreshClearsReadArticlesSwitch.isOn = false
 		}
+
 		
 		articleThemeDetailLabel.text = ArticleThemesManager.shared.currentTheme.name
 

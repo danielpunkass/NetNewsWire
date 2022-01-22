@@ -19,6 +19,7 @@ enum PanelMode {
 	case three
 	case standard
 }
+
 enum SearchScope: Int {
 	case timeline = 0
 	case global = 1
@@ -30,7 +31,21 @@ enum ShowFeedName {
 	case feed
 }
 
-class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
+struct FeedNode: Hashable {
+	var node: Node
+	var feedID: FeedIdentifier
+	
+	init(_ node: Node) {
+		self.node = node
+		self.feedID = (node.representedObject as! Feed).feedID!
+	}
+	
+	func hash(into hasher: inout Hasher) {
+		hasher.combine(feedID)
+	}
+}
+
+class SceneCoordinator: NSObject, UndoableCommandRunner {
 	
 	var undoableCommands = [UndoableCommand]()
 	var undoManager: UndoManager? {
@@ -74,7 +89,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	
 	private var expandedTable = Set<ContainerIdentifier>()
 	private var readFilterEnabledTable = [FeedIdentifier: Bool]()
-	private var shadowTable = [[Node]]()
+	private var shadowTable = [(sectionID: String, feedNodes: [FeedNode])]()
 	
 	private(set) var preSearchTimelineFeed: Feed?
 	private var lastSearchString = ""
@@ -162,21 +177,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	private var exceptionArticleFetcher: ArticleFetcher?
 	private(set) var timelineFeed: Feed?
 	
-	// We have to defer the selecting of the feed and article due to a behavior (bug?) in iOS 15.
-	// iOS 15 will crash if you are in landscape on an iPad and are restoring article state. We
-	// have no idea why this is, but it happens when you do a select on a UITableView right before
-	// doing a diffable datasource apply.
-	//
-	// Steps to recreate:
-	//
-	// * Try to relaunch the app in the sim.
-	// * Press the Stop button in Xcode
-	// * Wait for all the app suspension activities to complete (widget data, etc)
-	// * Once the article has loaded, navigate to the iPad home screen
-	// * While in landscape, select a feed and then select an article
-	// * Install a fresh build of NNW to an iPad simulator (11 or 12.9' will do) running iPadOS 15
-	private var deferredFeedAndArticleSelect: (feedIdentifier: FeedIdentifier, articleID: String, isShowingExtractedArticle: Bool, articleWindowScrollY: Int)?
-	
 	var timelineMiddleIndexPath: IndexPath?
 	
 	private(set) var showFeedNames = ShowFeedName.none
@@ -190,8 +190,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		let prevIndexPath: IndexPath? = {
 			if indexPath.row - 1 < 0 {
 				for i in (0..<indexPath.section).reversed() {
-					if shadowTable[i].count > 0 {
-						return IndexPath(row: shadowTable[i].count - 1, section: i)
+					if shadowTable[i].feedNodes.count > 0 {
+						return IndexPath(row: shadowTable[i].feedNodes.count - 1, section: i)
 					}
 				}
 				return nil
@@ -209,9 +209,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		}
 		
 		let nextIndexPath: IndexPath? = {
-			if indexPath.row + 1 >= shadowTable[indexPath.section].count {
+			if indexPath.row + 1 >= shadowTable[indexPath.section].feedNodes.count {
 				for i in indexPath.section + 1..<shadowTable.count {
-					if shadowTable[i].count > 0 {
+					if shadowTable[i].feedNodes.count > 0 {
 						return IndexPath(row: 0, section: i)
 					}
 				}
@@ -285,20 +285,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	var isTimelineUnreadAvailable: Bool {
-		return unreadCount > 0
+		return timelineUnreadCount > 0
 	}
 	
 	var isAnyUnreadAvailable: Bool {
 		return appDelegate.unreadCount > 0
 	}
 	
-	var unreadCount: Int = 0 {
-		didSet {
-			if unreadCount != oldValue {
-				postUnreadCountDidChangeNotification()
-			}
-		}
-	}
+	var timelineUnreadCount: Int = 0
 	
 	override init() {
 		treeController = TreeController(delegate: treeControllerDelegate)
@@ -307,7 +301,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		for sectionNode in treeController.rootNode.childNodes {
 			markExpanded(sectionNode)
-			shadowTable.append([Node]())
+			shadowTable.append((sectionID: "", feedNodes: [FeedNode]()))
 		}
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(unreadCountDidInitialize(_:)), name: .UnreadCountDidInitialize, object: nil)
@@ -458,15 +452,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			return
 		}
 		
-		rebuildBackingStores(initialLoad: true, completion:  {
-			if let (feedIdentifier, articleID, isShowingExtractedArticle, articleWindowScrollY) = self.deferredFeedAndArticleSelect,
-			   let feedNode = self.nodeFor(feedID: feedIdentifier),
-			   let feedIndexPath = self.indexPathFor(feedNode) {
-				self.selectFeed(indexPath: feedIndexPath) {
-					self.selectArticleInCurrentFeed(articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
-				}
-			}
-		})
+		if isReadFeedsFiltered {
+			rebuildBackingStores()
+		}
 	}
 
 	@objc func unreadCountDidChange(_ note: Notification) {
@@ -502,23 +490,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	}
 
 	@objc func accountStateDidChange(_ note: Notification) {
-		let expandNewlyActivatedAccount = {
-			if let account = note.userInfo?[Account.UserInfoKey.account] as? Account,
-				account.isActive,
-				let node = self.treeController.rootNode.childNodeRepresentingObject(account) {
-					self.markExpanded(node)
-			}
-		}
-
 		if timelineFetcherContainsAnyPseudoFeed() {
 			fetchAndMergeArticlesAsync(animated: true) {
 				self.masterTimelineViewController?.reinitializeArticles(resetScroll: false)
-				self.rebuildBackingStores(updateExpandedNodes: expandNewlyActivatedAccount)
+				self.rebuildBackingStores()
 			}
 		} else {
-			self.rebuildBackingStores(updateExpandedNodes: expandNewlyActivatedAccount)
+			self.rebuildBackingStores()
 		}
-		
 	}
 	
 	@objc func userDidAddAccount(_ note: Notification) {
@@ -650,20 +629,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 		refreshTimeline(resetScroll: false)
 	}
-	
-	func shadowNodesFor(section: Int) -> [Node] {
-		return shadowTable[section]
-	}
-	
-	func nodeFor(containerID: ContainerIdentifier) -> Node? {
-		return treeController.rootNode.descendantNode(where: { node in
-			if let container = node.representedObject as? Container {
-				return container.containerID == containerID
-			} else {
-				return false
-			}
-		})
-	}
 
 	func nodeFor(feedID: FeedIdentifier) -> Node? {
 		return treeController.rootNode.descendantNode(where: { node in
@@ -675,13 +640,37 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		})
 	}
 	
+	func numberOfSections() -> Int {
+		return shadowTable.count
+	}
+	
+	func numberOfRows(in section: Int) -> Int {
+		return shadowTable[section].feedNodes.count
+	}
+	
+	func nodeFor(_ indexPath: IndexPath) -> Node? {
+		guard indexPath.section < shadowTable.count && indexPath.row < shadowTable[indexPath.section].feedNodes.count else {
+			return nil
+		}
+		return shadowTable[indexPath.section].feedNodes[indexPath.row].node
+	}
+	
+	func indexPathFor(_ node: Node) -> IndexPath? {
+		for i in 0..<shadowTable.count {
+			if let row = shadowTable[i].feedNodes.firstIndex(of: FeedNode(node)) {
+				return IndexPath(row: row, section: i)
+			}
+		}
+		return nil
+	}
+	
 	func articleFor(_ articleID: String) -> Article? {
 		return idToAticleDictionary[articleID]
 	}
 	
 	func cappedIndexPath(_ indexPath: IndexPath) -> IndexPath {
-		guard indexPath.section < shadowTable.count && indexPath.row < shadowTable[indexPath.section].count else {
-			return IndexPath(row: shadowTable[shadowTable.count - 1].count - 1, section: shadowTable.count - 1)
+		guard indexPath.section < shadowTable.count && indexPath.row < shadowTable[indexPath.section].feedNodes.count else {
+			return IndexPath(row: shadowTable[shadowTable.count - 1].feedNodes.count - 1, section: shadowTable.count - 1)
 		}
 		return indexPath
 	}
@@ -689,7 +678,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 	func unreadCountFor(_ node: Node) -> Int {
 		// The coordinator supplies the unread count for the currently selected feed
 		if node.representedObject === timelineFeed as AnyObject {
-			return unreadCount
+			return timelineUnreadCount
 		}
 		if let unreadCountProvider = node.representedObject as? UnreadCountProvider {
 			return unreadCountProvider.unreadCount
@@ -806,6 +795,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 			self.activityManager.selecting(feed: feed)
 			self.installTimelineControllerIfNecessary(animated: animations.contains(.navigation))
 			setTimelineFeed(feed, animated: false) {
+				if self.isReadFeedsFiltered {
+					self.rebuildBackingStores()
+				}
 				completion?()
 			}
 			
@@ -1325,6 +1317,23 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, UnreadCountProvider {
 		
 	}
 	
+	/// This will dismiss the foremost view controller if the user
+	/// has launched from an external action (i.e., a widget tap, or
+	/// selecting an article via a notification).
+	///
+	/// The dismiss is only applicable if the view controller is a
+	/// `SFSafariViewController` or `SettingsViewController`,
+	/// otherwise, this function does nothing.
+	func dismissIfLaunchingFromExternalAction() {
+		guard let presentedController = masterFeedViewController.presentedViewController else { return }
+		
+		if presentedController.isKind(of: SFSafariViewController.self) {
+			presentedController.dismiss(animated: true, completion: nil)
+		}
+		guard let settings = presentedController.children.first as? SettingsViewController else { return }
+		settings.dismiss(animated: true, completion: nil)
+	}
+	
 }
 
 // MARK: UISplitViewControllerDelegate
@@ -1393,7 +1402,7 @@ extension SceneCoordinator: UINavigationControllerDelegate {
 		// If we are using a phone and navigate away from the detail, clear up the article resources (including activity).
 		// Don't clear it if we have pushed an ArticleViewController, but don't yet see it on the navigation stack.
 		// This happens when we are going to the next unread and we need to grab another timeline to continue.  The
-		// ArticleViewController will be pushed, but we will breifly show the Timeline.  Don't clear things out when that happens.
+		// ArticleViewController will be pushed, but we will briefly show the Timeline.  Don't clear things out when that happens.
 		if viewController === masterTimelineViewController && !isThreePanelMode && rootSplitViewController.isCollapsed && !isArticleViewControllerPending {
 			currentArticle = nil
 			masterTimelineViewController?.updateArticleSelection(animations: [.scroll, .select, .navigation])
@@ -1430,7 +1439,7 @@ private extension SceneCoordinator {
 				count += 1
 			}
 		}
-		unreadCount = count
+		timelineUnreadCount = count
 	}
 	
 	func rebuildArticleDictionaries() {
@@ -1483,8 +1492,8 @@ private extension SceneCoordinator {
 	
 	func addShadowTableToFilterExceptions() {
 		for section in shadowTable {
-			for node in section {
-				if let feed = node.representedObject as? Feed, let feedID = feed.feedID {
+			for feedNode in section.feedNodes {
+				if let feed = feedNode.node.representedObject as? Feed, let feedID = feed.feedID {
 					treeControllerDelegate.addFilterException(feedID)
 				}
 			}
@@ -1501,51 +1510,109 @@ private extension SceneCoordinator {
 	
 	func rebuildBackingStores(initialLoad: Bool = false, updateExpandedNodes: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
 		if !BatchUpdate.shared.isPerforming {
-			
 			addToFilterExeptionsIfNecessary(timelineFeed)
 			treeController.rebuild()
 			treeControllerDelegate.resetFilterExceptions()
 			
 			updateExpandedNodes?()
-			rebuildShadowTable()
-			masterFeedViewController.reloadFeeds(initialLoad: initialLoad, completion: completion)
-			
+			let changes = rebuildShadowTable()
+			masterFeedViewController.reloadFeeds(initialLoad: initialLoad, changes: changes, completion: completion)
 		}
 	}
 	
-	func rebuildShadowTable() {
-		shadowTable = [[Node]]()
+	func rebuildShadowTable() -> ShadowTableChanges {
+		var newShadowTable = [(sectionID: String, feedNodes: [FeedNode])]()
 
 		for i in 0..<treeController.rootNode.numberOfChildNodes {
 			
-			var result = [Node]()
+			var feedNodes = [FeedNode]()
 			let sectionNode = treeController.rootNode.childAtIndex(i)!
 			
 			if isExpanded(sectionNode) {
 				for node in sectionNode.childNodes {
-					result.append(node)
+					feedNodes.append(FeedNode(node))
 					if isExpanded(node) {
 						for child in node.childNodes {
-							result.append(child)
+							feedNodes.append(FeedNode(child))
 						}
 					}
 				}
 			}
 			
-			shadowTable.append(result)
-			
+			let sectionID = (sectionNode.representedObject as? Account)?.accountID ?? ""
+			newShadowTable.append((sectionID: sectionID, feedNodes: feedNodes))
 		}
 		
 		// If we have a current Feed IndexPath it is no longer valid and needs reset.
 		if currentFeedIndexPath != nil {
 			currentFeedIndexPath = indexPathFor(timelineFeed as AnyObject)
 		}
+		
+		// Compute the differences in the shadow table rows
+		var changes = [ShadowTableChanges.RowChanges]()
+		
+		for (section, newSectionRows) in newShadowTable.enumerated() {
+			var moves = Set<ShadowTableChanges.Move>()
+			var inserts = Set<Int>()
+			var deletes = Set<Int>()
+			
+			let oldFeedNodes = shadowTable.first(where: { $0.sectionID == newSectionRows.sectionID })?.feedNodes ?? [FeedNode]()
+			
+			let diff = newSectionRows.feedNodes.difference(from: oldFeedNodes).inferringMoves()
+			for change in diff {
+				switch change {
+				case .insert(let offset, _, let associated):
+					if let associated = associated {
+						moves.insert(ShadowTableChanges.Move(associated, offset))
+					} else {
+						inserts.insert(offset)
+					}
+				case .remove(let offset, _, let associated):
+					if let associated = associated {
+						moves.insert(ShadowTableChanges.Move(offset, associated))
+					} else {
+						deletes.insert(offset)
+					}
+				}
+			}
+			
+			changes.append(ShadowTableChanges.RowChanges(section: section, deletes: deletes, inserts: inserts, moves: moves))
+		}
+
+		// Compute the difference in the shadow table sections
+		var moves = Set<ShadowTableChanges.Move>()
+		var inserts = Set<Int>()
+		var deletes = Set<Int>()
+		
+		let oldSections = shadowTable.map { $0.sectionID }
+		let newSections = newShadowTable.map { $0.sectionID }
+		let diff = newSections.difference(from: oldSections).inferringMoves()
+		for change in diff {
+			switch change {
+			case .insert(let offset, _, let associated):
+				if let associated = associated {
+					moves.insert(ShadowTableChanges.Move(associated, offset))
+				} else {
+					inserts.insert(offset)
+				}
+			case .remove(let offset, _, let associated):
+				if let associated = associated {
+					moves.insert(ShadowTableChanges.Move(offset, associated))
+				} else {
+					deletes.insert(offset)
+				}
+			}
+		}
+
+		shadowTable = newShadowTable
+		
+		return ShadowTableChanges(deletes: deletes, inserts: inserts, moves: moves, rowChanges: changes)
 	}
 	
 	func shadowTableContains(_ feed: Feed) -> Bool {
 		for section in shadowTable {
-			for node in section {
-				if let nodeFeed = node.representedObject as? Feed, nodeFeed.feedID == feed.feedID {
+			for feedNode in section.feedNodes {
+				if let nodeFeed = feedNode.node.representedObject as? Feed, nodeFeed.feedID == feed.feedID {
 					return true
 				}
 			}
@@ -1557,22 +1624,6 @@ private extension SceneCoordinator {
 		if let feed = timelineFeed, !shadowTableContains(feed) {
 			selectFeed(nil, deselectArticle: true)
 		}
-	}
-
-	func nodeFor(_ indexPath: IndexPath) -> Node? {
-		guard indexPath.section < shadowTable.count && indexPath.row < shadowTable[indexPath.section].count else {
-			return nil
-		}
-		return shadowTable[indexPath.section][indexPath.row]
-	}
-	
-	func indexPathFor(_ node: Node) -> IndexPath? {
-		for i in 0..<shadowTable.count {
-			if let row = shadowTable[i].firstIndex(of: node) {
-				return IndexPath(row: row, section: i)
-			}
-		}
-		return nil
 	}
 
 	func indexPathFor(_ object: AnyObject) -> IndexPath? {
@@ -1709,9 +1760,9 @@ private extension SceneCoordinator {
 		let nextIndexPath: IndexPath = {
 			if indexPath.row - 1 < 0 {
 				if indexPath.section - 1 < 0 {
-					return IndexPath(row: shadowTable[shadowTable.count - 1].count - 1, section: shadowTable.count - 1)
+					return IndexPath(row: shadowTable[shadowTable.count - 1].feedNodes.count - 1, section: shadowTable.count - 1)
 				} else {
-					return IndexPath(row: shadowTable[indexPath.section - 1].count - 1, section: indexPath.section - 1)
+					return IndexPath(row: shadowTable[indexPath.section - 1].feedNodes.count - 1, section: indexPath.section - 1)
 				}
 			} else {
 				return IndexPath(row: indexPath.row - 1, section: indexPath.section)
@@ -1721,7 +1772,7 @@ private extension SceneCoordinator {
 		if selectPrevUnreadFeedFetcher(startingWith: nextIndexPath) {
 			return
 		}
-		let maxIndexPath = IndexPath(row: shadowTable[shadowTable.count - 1].count - 1, section: shadowTable.count - 1)
+		let maxIndexPath = IndexPath(row: shadowTable[shadowTable.count - 1].feedNodes.count - 1, section: shadowTable.count - 1)
 		selectPrevUnreadFeedFetcher(startingWith: maxIndexPath)
 		
 	}
@@ -1735,7 +1786,7 @@ private extension SceneCoordinator {
 				if indexPath.section == i {
 					return indexPath.row
 				} else {
-					return shadowTable[i].count - 1
+					return shadowTable[i].feedNodes.count - 1
 				}
 			}()
 			
@@ -1814,7 +1865,7 @@ private extension SceneCoordinator {
 		
 		// Increment or wrap around the IndexPath
 		let nextIndexPath: IndexPath = {
-			if indexPath.row + 1 >= shadowTable[indexPath.section].count {
+			if indexPath.row + 1 >= shadowTable[indexPath.section].feedNodes.count {
 				if indexPath.section + 1 >= shadowTable.count {
 					return IndexPath(row: 0, section: 0)
 				} else {
@@ -1849,7 +1900,7 @@ private extension SceneCoordinator {
 				}
 			}()
 
-			for j in startingRow..<shadowTable[i].count {
+			for j in startingRow..<shadowTable[i].feedNodes.count {
 
 				let nextIndexPath = IndexPath(row: j, section: i)
 				guard let node = nodeFor(nextIndexPath), let unreadCountProvider = node.representedObject as? UnreadCountProvider else {
@@ -2184,7 +2235,7 @@ private extension SceneCoordinator {
 			guard let smartFeed = SmartFeedsController.shared.find(by: feedIdentifier) else { return }
 
 			markExpanded(SmartFeedsController.shared)
-			rebuildBackingStores(completion:  {
+			rebuildBackingStores(initialLoad: true, completion:  {
 				self.treeControllerDelegate.resetFilterExceptions()
 				if let indexPath = self.indexPathFor(smartFeed) {
 					self.selectFeed(indexPath: indexPath) {
@@ -2204,7 +2255,7 @@ private extension SceneCoordinator {
 
 			markExpanded(account)
 			
-			rebuildBackingStores(completion:  {
+			rebuildBackingStores(initialLoad: true, completion:  {
 				self.treeControllerDelegate.resetFilterExceptions()
 				
 				if let folderNode = self.findFolderNode(folderName: folderName, beginningAt: accountNode), let indexPath = self.indexPathFor(folderNode) {
@@ -2269,14 +2320,14 @@ private extension SceneCoordinator {
 			return false
 
 		case .smartFeed, .folder:
-			let found = deferSelectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
+			let found = selectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 			if found {
 				treeControllerDelegate.addFilterException(feedIdentifier)
 			}
 			return found
 		
 		case .webFeed:
-			let found = deferSelectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
+			let found = selectFeedAndArticle(feedIdentifier: feedIdentifier, articleID: articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 			if found {
 				treeControllerDelegate.addFilterException(feedIdentifier)
 				if let webFeedNode = nodeFor(feedID: feedIdentifier), let folder = webFeedNode.parent?.representedObject as? Folder, let folderFeedID = folder.feedID {
@@ -2315,15 +2366,11 @@ private extension SceneCoordinator {
 		return nil
 	}
 	
-	func deferSelectFeedAndArticle(feedIdentifier: FeedIdentifier, articleID: String, isShowingExtractedArticle: Bool, articleWindowScrollY: Int) -> Bool {
+	func selectFeedAndArticle(feedIdentifier: FeedIdentifier, articleID: String, isShowingExtractedArticle: Bool, articleWindowScrollY: Int) -> Bool {
 		guard let feedNode = nodeFor(feedID: feedIdentifier), let feedIndexPath = indexPathFor(feedNode) else { return false }
 		
-		if AccountManager.shared.isUnreadCountsInitialized {
-			selectFeed(indexPath: feedIndexPath) {
-				self.selectArticleInCurrentFeed(articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
-			}
-		} else {
-			deferredFeedAndArticleSelect = (feedIdentifier, articleID, isShowingExtractedArticle, articleWindowScrollY)
+		selectFeed(indexPath: feedIndexPath) {
+			self.selectArticleInCurrentFeed(articleID, isShowingExtractedArticle: isShowingExtractedArticle, articleWindowScrollY: articleWindowScrollY)
 		}
 		
 		return true

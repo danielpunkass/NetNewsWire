@@ -138,6 +138,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 	}
 
 	var undoableCommands = [UndoableCommand]()
+
 	private var fetchSerialNumber = 0
 	private let fetchRequestQueue = FetchRequestQueue()
 	private var exceptionArticleFetcher: ArticleFetcher?
@@ -222,7 +223,6 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 			NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange(_:)), name: .UserDidDeleteAccount, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(containerChildrenDidChange(_:)), name: .ChildrenDidChange, object: nil)
 			NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange(_:)), name: UserDefaults.didChangeNotification, object: nil)
-
 			didRegisterForNotifications = true
 		}
 	}
@@ -811,6 +811,12 @@ extension TimelineViewController: NSTableViewDataSource {
 			return nil
 		}
 		return ArticlePasteboardWriter(article: article)
+	}
+
+	func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+		// Keeping -[NSTableViewDelegate tableView:heightOfRow:] implemented fixes
+		// an issue that the bottom inset of NSTableView disappears on macOS Monterey.
+		return tableView.rowHeight
 	}
 }
 

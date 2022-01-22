@@ -1,5 +1,3 @@
-/* Shared iOS and macOS CSS rules. Platform specific rules are at the bottom of this file. */
-
 body {
 	margin-left: auto;
 	margin-right: auto;
@@ -8,21 +6,46 @@ body {
 	max-width: 44em;
 }
 
-a {
-	text-decoration: none;
+.feedHeader {
+	margin: auto;
+	text-align: center;
 }
 
+.feedHeader img {
+	margin: auto;
+	display: block;
+	padding-top: 1em;
+	padding-bottom: 1em;
+}
+
+.svg-inline--fa {
+	height: 1em;
+	width: 1em;
+	vertical-align: middle;
+}
+
+a {
+	text-decoration: none;
+	font-weight: bold;
+}
 a:hover {
 	text-decoration: underline;
 }
-
 .feedlink {
 	font-weight: bold;
 }
-
 .headerTable {
 	width: 100%;
 	height: 68px;
+}
+
+img {
+	border-radius: 4px;
+}
+
+pre {
+	padding: 5px;
+	border-radius: 4px;
 }
 
 .systemMessage {
@@ -61,11 +84,9 @@ body .headerTable {
 	border-bottom: 1px solid var(--header-table-border-color);
 	color: var(--header-color);
 }
-
 body .header {
 	color: var(--header-color);
 }
-
 body .header a:link, .header a:visited {
 	color: var(--header-color);
 }
@@ -89,32 +110,40 @@ body > .systemMessage {
 .feedIcon {
 	border-radius: 4px;
 }
-
 .rightAlign {
 	text-align: end;
 }
-
 .leftAlign {
 	text-align: start;
 }
 
-.articleTitle a:link, .articleTitle a:visited {
+.articleTitle a:link, .articleTitle a:visited, .articleTitle h1 {
 	color: var(--article-title-color);
 	margin-top: 26px;
+	padding-bottom: 12px;
+	text-align: center;
+	margin: auto;
+	font-family: Charter, ui-serif;
 }
 
 .articleDateline {
+	color: rgba(124, 124, 124, 1);
 	margin-bottom: 5px;
-	font-weight: bold;
+	text-align: center;
+	padding-top: 1em;
 }
 
 .articleDateline a:link, .articleDateline a:visited {
-	color: var(--article-date-color);
+	color: rgba(166, 166, 166, 1);
+	font-weight: normal;
+	padding-top: 1em;
+	text-align: center;
 }
 
 .articleDatelineTitle {
+	color: rgba(124, 124, 124, 1);
 	margin-bottom: 5px;
-	font-weight: bold;
+	font-weight: normal;
 }
 
 .articleDatelineTitle a:link, .articleDatelineTitle a:visited {
@@ -128,7 +157,10 @@ body > .systemMessage {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	text-align: center;
 }
+
+
 
 .articleBody {
 	margin-top: 20px;
@@ -157,7 +189,7 @@ pre {
 
 code, pre {
 	font-family: "SF Mono", Menlo, "Courier New", Courier, monospace;
-	font-size: 1em;
+	font-size: 0.95em;
 	-webkit-hyphens: none;
 }
 
@@ -169,7 +201,6 @@ pre code {
 .nnw-overflow {
 	overflow-x: auto;
 }
-
 /*
  Instead of the last-child bits, border-collapse: collapse
  could have been used. However, then the inter-cell borders
@@ -181,12 +212,10 @@ pre code {
 	border: 1px solid var(--secondary-accent-color);
 	font-size: inherit;
 }
-
 .nnw-overflow table table {
 	margin-bottom: 0;
 	border: none;
 }
-
 .nnw-overflow td, .nnw-overflow th {
 	-webkit-hyphens: none;
 	word-break: normal;
@@ -203,12 +232,10 @@ pre code {
 .nnw-overflow :matches(thead, tbody, tfoot):last-child > tr:last-child :matches(td, th) {
 	border-bottom: none;
 }
-
 .nnw-overflow td pre {
 	border: none;
 	padding: 0;
 }
-
 .nnw-overflow table[border="0"] {
 	border-width: 0;
 }
@@ -251,7 +278,10 @@ sub {
 }
 
 hr {
-	border: 1.5px solid var(--table-cell-border-color);
+	border: none; 
+	background-color: var(--table-cell-border-color); 
+	height: 1px;
+	margin-top: 1em;
 }
 
 .iframeWrap {
@@ -268,17 +298,82 @@ hr {
 	width: 100% !important;
 }
 
-blockquote {
-	margin-inline-start: 0;
-	margin-inline-end: 0;
-	padding-inline-start: 15px;
-	border-inline-start: 3px solid var(--block-quote-border-color);
+@media (prefers-color-scheme: light) {
+	  blockquote {
+		  background: color(srgb 0.947 0.947 0.947);
+		  border-radius: 4px;
+		  margin: 1.5em 0;
+		  padding: 1rem;
+		  color: color(srgb 0.383 0.383 0.383);
+		  font-size: 0.95rem;
+	  }
+	  
+	  pre {
+		  background: color(srgb 0.947 0.947 0.947);
+	  }
+	  
+	  p code {
+		  background: color(srgb 0.947 0.947 0.947);
+		  padding: 0.2em;
+		  border-radius: 4px;
+	  }
 }
+
+@media (prefers-color-scheme: dark) {
+  blockquote {
+	  background: rgba(49, 49, 49, 1);
+	  border-radius: 4px;
+	  margin: 1.5em 0;
+	  padding: 1em;
+	  color: rgba(195, 195, 195, 1);
+	  font-size: 0.95rem;
+  }
+  
+  pre {
+	  background: rgba(49, 49, 49, 1);
+  }
+  
+  p code {
+	  background: rgba(49, 49, 49, 1);
+	  padding: 0.2em;
+	  border-radius: 4px;
+  }
+}
+
+blockquote > blockquote {
+  padding-left: 1em;
+  padding-top: 0em;
+  padding-bottom: 0em;
+  font-style: italic;
+}
+
+
+blockquote > *:first-child {
+	margin-block-start: 0px;
+}
+
+blockquote > *:last-child {
+	margin-block-end: 0px;
+}
+
 
 /* Feed Specific */
 
 .feedbin--article-wrap {
 	border-top: 1px solid var(--header-table-border-color);
+}
+
+/* Hide the external link at the bottom of Daring Fireball posts */
+
+.x-netnewswire-hide {
+	display: none;
+}
+
+/* see removeWpSmiley; this rule is kept in case a wp-smiley is encountered without alt text */
+
+.wp-smiley {
+   height: 1em;
+   max-height: 1em;
 }
 
 /* Twitter */
@@ -305,23 +400,126 @@ blockquote {
 	font-size: 66%;
 }
 
-/* Newsfoot theme for light mode (default) */
+/*Block ads and junk*/
+
+iframe[src*="feedads"],
+iframe[src*="doubleclick"],
+iframe[src*="plusone.google"] {
+	display: none !important;
+}
+
+a[href*=".ads."],
+a[href*="feedads"],
+a[href*="doubleclick"],
+a[href*="//ads."],
+a[href*="api.tweetmeme"],
+a[href*="delicious.com/post?"],
+a[href*="digg.com/submit?"],
+a[href*="google.com/bookmarks/mark?"],
+a[href*="posterous.com/share?"],
+a[href*="tumblr.com/share?"],
+a[href*="linkedin.com/shareArticle?"],
+a[href*="facebook.com/share.php?"],
+a[href*="http://twitter.com/home?"],
+a[href*="addtoany.com/share_save"] {
+	display: none !important;
+}
+
+img[src*=".ads."],
+img[src*="//ads."],
+img[src*="doubleclick"],
+img[src*="feedads"],
+img[src*="feedburner"],
+img[src*="feedblitz"],
+img[src*="share-buttons"] {
+	display: none !important;
+}
+
+/* Newsfoot specific styles. Structural styles come first, theme styles second */
+.newsfoot-footnote-container {
+	position: relative;
+	display: inline-block;
+	z-index: 9999;
+}
+
+.newsfoot-footnote-popover {
+	position: absolute;
+	display: block;
+	padding: 0em 1em;
+	margin: 1em;
+	top: 0.75em;
+	max-width: none;
+	border-radius: 0.3em;
+	box-sizing: border-box;
+}
+
+.newsfoot-footnote-popover {
+	left: calc(-1 * (50vw - 1em));
+	right: calc(-1 * (50vw - 1em));
+}
+.newsfoot-footnote-popover-arrow {
+	content: '';
+	display: block;
+	width: 1em;
+	position: absolute;
+	top: -0.5em;
+	left: calc(50% - 0.5em);
+	height: 1em !important;
+	transform: rotate(45deg);
+	z-index:0;
+}
+.newsfoot-footnote-popover-inner {
+	border-radius: calc(0.3em - 1px);
+	padding: 1em;
+	position: relative;
+	z-index: 1;
+}
+
+.newsfoot-footnote-popover-inner :first-child {
+	margin-top: 0;
+}
+.newsfoot-footnote-popover-inner :last-child {
+	margin-bottom: 0;
+}
+
+.newsfoot-footnote-popover .reversefootnote,
+.newsfoot-footnote-popover .footnoteBackLink,
+.newsfoot-footnote-popover .footnote-return,
+.newsfoot-footnote-popover a[href*='#fn'] {
+	display: none;
+}
+
+sup[id^='fn'] {
+	vertical-align: baseline;
+}
+
+a.footnote {
+	display: inline-block;
+	text-decoration: none;
+	padding: 0.05em 0.75em;
+	border-radius: 1em;
+	min-width: 1em;
+	text-align: center;
+	font-size: 0.8em;
+	line-height: 1em;
+	position:relative;
+	top: -0.1em;
+}
+
+/* light / default */
 .newsfoot-footnote-popover {
 	background: #ccc;
 	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 3px 6px rgba(0, 0, 0, 0.25);
 	color: black;
 	padding: 1px;
 }
-
 .newsfoot-footnote-popover-arrow {
 	background: #fafafa;
 	border: 1px solid #ccc;
 }
-
 .newsfoot-footnote-popover-inner {
 	background: #fafafa;
 }
-
 body a.footnote,
 body a.footnote:visited,
 .newsfoot-footnote-popover + a.footnote:hover {
@@ -329,29 +527,25 @@ body a.footnote:visited,
 	color: white;
 	transition: background-color 200ms ease-out;
 }
-
 a.footnote:hover,
 .newsfoot-footnote-popover + a.footnote {
 	background: #666;
 	transition: background-color 200ms ease-out;
 }
 
-/* Newsfoot theme for dark mode */
+/* dark */
 @media screen and (prefers-color-scheme: dark) {
 	.newsfoot-footnote-popover {
 		background: #444;
 		color: rgb(224, 224, 224);
 	}
-
 	.newsfoot-footnote-popover-arrow {
 		background: #242424;
 		border: 1px solid #444;
 	}
-
 	.newsfoot-footnote-popover-inner {
 		background: #242424;
 	}
-
 	body a.footnote,
 	body a.footnote:visited,
 	.newsfoot-footnote-popover + a.footnote:hover {
@@ -359,13 +553,11 @@ a.footnote:hover,
 		color: white;
 		transition: background-color 200ms ease-out;
 	}
-
 	a.footnote:hover,
 	.newsfoot-footnote-popover + a.footnote {
 		background: #666;
 		transition: background-color 200ms ease-out;
 	}
-
 }
 
 /* iOS Specific */
@@ -376,16 +568,11 @@ a.footnote:hover,
 		margin-bottom: 20px;
 		padding-left: 20px;
 		padding-right: 20px;
-
-		word-break: break-word;
-		-webkit-hyphens: auto;
-		-webkit-text-size-adjust: none;
 	}
 
 	:root {
 		color-scheme: light dark;
-		font: -apple-system-body;
-		/* The font-size is replaced at runtime by the dynamic type size */
+		font-family: 'Avenir-Book', -apple-system-body;
 		font-size: [[font-size]]px;
 		--primary-accent-color: #086AEE;
 		--secondary-accent-color: #086AEE;
@@ -404,23 +591,34 @@ a.footnote:hover,
 	body a, body a:visited, body a * {
 		color: var(--secondary-accent-color);
 	}
-
 	body .header {
 		font: -apple-system-body;
 		font-size: [[font-size]]px;
 	}
-
 	body .header a:link, body .header a:visited {
 		color: var(--primary-accent-color);
 	}
 
-	pre {
-		border: 1px solid var(--secondary-accent-color);
-		padding: 5px;
+	.avatar img {
+		border-radius: 4px;
 	}
 
 	.nnw-overflow table {
-		border: 1px solid var(--secondary-accent-color);
+		border: none;
+	}
+
+	.activityIndicatorWrap {
+		position: relative;
+	}
+
+	.activityIndicator {
+		z-index: 1;
+		width: 64px;
+		height: 64px;
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
 	}
 
 }
@@ -433,7 +631,7 @@ a.footnote:hover,
 		margin-bottom: 64px;
 		padding-left: 48px;
 		padding-right: 48px;
-		font-family: -apple-system;
+		font-family: 'Avenir', -apple-system;
 	}
 
 	.smallText {
@@ -474,13 +672,8 @@ a.footnote:hover,
 		color: var(--accent-color);
 	}
 
-	pre {
-		border: 1px solid var(--accent-color);
-		padding: 10px;
-	}
-
 	.nnw-overflow table {
-		border: 1px solid var(--accent-color);
+		//border: 1px solid var(--accent-color);
 	}
 
 }

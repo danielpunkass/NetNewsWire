@@ -119,7 +119,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 		#if DEBUG
 		syncTimer!.update()
 		#endif
-		
+			
 		return true
 		
 	}
@@ -210,6 +210,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 		default:
 			if let sceneDelegate = response.targetScene?.delegate as? SceneDelegate {
 				sceneDelegate.handle(response)
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: {
+					sceneDelegate.coordinator.dismissIfLaunchingFromExternalAction()
+				})
 			}
 		}
 		
@@ -285,7 +288,7 @@ private extension AppDelegate {
 	
 	func waitToComplete(completion: @escaping (Bool) -> Void) {
 		guard UIApplication.shared.applicationState == .background else {
-			os_log("App came back to forground, no longer waiting.", log: self.log, type: .info)
+			os_log("App came back to foreground, no longer waiting.", log: self.log, type: .info)
 			completion(false)
 			return
 		}

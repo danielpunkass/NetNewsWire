@@ -82,7 +82,7 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 		numberOfTextLines = AppDefaults.shared.timelineNumberOfLines
 		iconSize = AppDefaults.shared.timelineIconSize
 		resetEstimatedRowHeight()
-		
+
 		if let titleView = Bundle.main.loadNibNamed("MasterTimelineTitleView", owner: self, options: nil)?[0] as? MasterTimelineTitleView {
 			navigationItem.titleView = titleView
 		}
@@ -525,13 +525,26 @@ class MasterTimelineViewController: UITableViewController, UndoableCommandRunner
 	}
 
 	@objc private func reloadAllVisibleCells() {
-		let visibleArticles = tableView.indexPathsForVisibleRows!.compactMap { return dataSource.itemIdentifier(for: $0) }
-		reloadCells(visibleArticles)
+		if #available(iOS 15, *) {
+			reconfigureCells(coordinator.articles)
+		} else {
+			let visibleArticles = tableView.indexPathsForVisibleRows!.compactMap { return dataSource.itemIdentifier(for: $0) }
+			reloadCells(visibleArticles)
+		}
 	}
 	
 	private func reloadCells(_ articles: [Article]) {
 		var snapshot = dataSource.snapshot()
 		snapshot.reloadItems(articles)
+		dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+			self?.restoreSelectionIfNecessary(adjustScroll: false)
+		}
+	}
+
+	private func reconfigureCells(_ articles: [Article]) {
+		guard #available(iOS 15, *) else { return }
+		var snapshot = dataSource.snapshot()
+		snapshot.reconfigureItems(articles)
 		dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
 			self?.restoreSelectionIfNecessary(adjustScroll: false)
 		}
@@ -688,7 +701,7 @@ private extension MasterTimelineViewController {
 	
 	func updateTitleUnreadCount() {
 		if let titleView = navigationItem.titleView as? MasterTimelineTitleView {
-			titleView.unreadCountView.unreadCount = coordinator.unreadCount
+			titleView.unreadCountView.unreadCount = coordinator.timelineUnreadCount
 		}
 	}
 	
@@ -739,7 +752,7 @@ private extension MasterTimelineViewController {
 	}
 	
 	func featuredImageFor(_ article: Article) -> UIImage? {
-		if let url = article.imageURL, let data = appDelegate.imageDownloader.image(for: url) {
+		if let link = article.imageLink, let data = appDelegate.imageDownloader.image(for: link) {
 			return RSImage(data: data)
 		}
 		return nil
@@ -924,7 +937,7 @@ private extension MasterTimelineViewController {
 	}
 	
 	func copyExternalURLAction(_ article: Article) -> UIAction? {
-		guard let externalURL = article.externalURL, externalURL != article.preferredLink, let url = URL(string: externalURL) else { return nil }
+		guard let externalLink = article.externalLink, externalLink != article.preferredLink, let url = URL(string: externalLink) else { return nil }
 		let title = NSLocalizedString("Copy External URL", comment: "Copy External URL")
 		let action = UIAction(title: title, image: AppAssets.copyImage) { action in
 			UIPasteboard.general.url = url

@@ -3,14 +3,14 @@
 <plist version="1.0">
 <dict>
 	<key>Name</key>
-	<string>Sepia</string>
+	<string>Promenade</string>
 	<key>ThemeIdentifier</key>
-	<string>com.netnewswire.themes.sepia</string>
+	<string>com.mynameisstuart.themes.promenade</string>
 	<key>CreatorHomePage</key>
-	<string>http://netnewswire.com/</string>
+	<string>https://mynameisstuart.com/</string>
 	<key>CreatorName</key>
-	<string>Ranchero Software</string>
+	<string>Stuart Breckenridge</string>
 	<key>Version</key>
-	<integer>1</integer>
+	<integer>14</integer>
 </dict>
 </plist>
