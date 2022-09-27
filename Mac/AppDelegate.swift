@@ -15,7 +15,6 @@ import Account
 import RSCore
 import RSCoreResources
 import Secrets
-import OSLog
 import CrashReporter
 
 // If we're not going to import Sparkle, provide dummy protocols to make it easy
@@ -30,7 +29,7 @@ import Sparkle
 var appDelegate: AppDelegate!
 
 @NSApplicationMain
-class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UNUserNotificationCenterDelegate, UnreadCountProvider, SPUStandardUserDriverDelegate, SPUUpdaterDelegate
+class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, UNUserNotificationCenterDelegate, UnreadCountProvider, SPUStandardUserDriverDelegate, SPUUpdaterDelegate, Logging
 {
 
 	private struct WindowRestorationIdentifiers {
@@ -192,14 +191,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 				try self.softwareUpdater.start()
 			}
 			catch {
-				NSLog("Failed to start software updater with error: \(error)")
+				logger.error("Failed to start software updater with error: \(error.localizedDescription, privacy: .public)")
 			}
 		#endif
 		
 		AppDefaults.shared.registerDefaults()
 		let isFirstRun = AppDefaults.shared.isFirstRun
 		if isFirstRun {
-			os_log(.debug, "Is first run.")
+			logger.debug("Is first run")
 		}
 		let localAccount = AccountManager.shared.defaultAccount
 
@@ -396,11 +395,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	
 	func createMainWindowController() -> MainWindowController {
 		let controller: MainWindowController
-		if #available(macOS 11.0, *) {
-			controller = windowControllerWithName("UnifiedWindow") as! MainWindowController
-		} else {
-			controller = windowControllerWithName("MainWindow") as! MainWindowController
-		}
+		controller = windowControllerWithName("MainWindow") as! MainWindowController
 		
 		if !(mainWindowController?.isOpen ?? false) {
 			mainWindowControllers.removeAll()
@@ -497,7 +492,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 	// MARK: UNUserNotificationCenterDelegate
 	
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.alert, .badge, .sound])
+        completionHandler([.banner, .badge, .sound])
     }
 	
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
@@ -679,7 +674,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	@IBAction func showHelp(_ sender: Any?) {
 
-		Browser.open("https://netnewswire.com/help/mac/6.0/en/", inBackground: false)
+		Browser.open("https://netnewswire.com/help/mac/6.1/en/", inBackground: false)
 	}
 
 	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
@@ -817,7 +812,7 @@ internal extension AppDelegate {
 		guard let window = mainWindowController?.window else { return }
 		
 		do {
-			let theme = try ArticleTheme(path: filename)
+			let theme = try ArticleTheme(path: filename, isAppTheme: false)
 			let alert = NSAlert()
 			alert.alertStyle = .informational
 
@@ -828,30 +823,20 @@ internal extension AppDelegate {
 			attrs[.font] = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
 			attrs[.foregroundColor] = NSColor.textColor
 			
-			if #available(macOS 11.0, *) {
-				let titleParagraphStyle = NSMutableParagraphStyle()
-				titleParagraphStyle.alignment = .center
-				attrs[.paragraphStyle] = titleParagraphStyle
-			}
+			let titleParagraphStyle = NSMutableParagraphStyle()
+			titleParagraphStyle.alignment = .center
+			attrs[.paragraphStyle] = titleParagraphStyle
 
 			let websiteText = NSMutableAttributedString()
-			websiteText.append(NSAttributedString(string: NSLocalizedString("Author's Website", comment: "Author's Website"), attributes: attrs))
+			websiteText.append(NSAttributedString(string: NSLocalizedString("Author‘s website:", comment: "Author's Website"), attributes: attrs))
 
-			if #available(macOS 11.0, *) {
-				websiteText.append(NSAttributedString(string: "\n"))
-			} else {
-				websiteText.append(NSAttributedString(string: " "))
-			}
+			websiteText.append(NSAttributedString(string: "\n"))
 
 			attrs[.link] = theme.creatorHomePage
 			websiteText.append(NSAttributedString(string: theme.creatorHomePage, attributes: attrs))
 
 			let textViewWidth: CGFloat
-			if #available(macOS 11.0, *) {
-				textViewWidth = 200
-			} else {
-				textViewWidth = 400
-			}
+			textViewWidth = 200
 
 			let textView = NSTextView(frame: CGRect(x: 0, y: 0, width: textViewWidth, height: 15))
 			textView.isEditable = false
@@ -868,6 +853,7 @@ internal extension AppDelegate {
 					confirmImportSuccess(themeName: theme.name)
 				} catch {
 					NSApplication.shared.presentError(error)
+					logger.error("Error importing theme: \(error.localizedDescription, privacy: .public)")
 				}
 			}
 			
@@ -896,6 +882,7 @@ internal extension AppDelegate {
 			}
 		} catch {
 			NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error" : error, "path": filename])
+			logger.error("Error importing theme: \(error.localizedDescription, privacy: .public)")
 		}
 	}
 	
@@ -1024,12 +1011,12 @@ private extension AppDelegate {
 		
 		let account = AccountManager.shared.existingAccount(with: accountID)
 		guard account != nil else {
-			os_log(.debug, "No account found from notification.")
+			logger.debug("No account found from notification.")
 			return
 		}
 		let article = try? account!.fetchArticles(.articleIDs([articleID]))
 		guard article != nil else {
-			os_log(.debug, "No article found from search using %@", articleID)
+			logger.debug("No article found from search using: \(articleID, privacy: .public)")
 			return
 		}
 		account!.markArticles(article!, statusKey: .read, flag: true) { _ in }
@@ -1043,12 +1030,12 @@ private extension AppDelegate {
 		}
 		let account = AccountManager.shared.existingAccount(with: accountID)
 		guard account != nil else {
-			os_log(.debug, "No account found from notification.")
+			logger.debug("No account found from notification.")
 			return
 		}
 		let article = try? account!.fetchArticles(.articleIDs([articleID]))
 		guard article != nil else {
-			os_log(.debug, "No article found from search using %@", articleID)
+			logger.debug("No article found from search using: \(articleID, privacy: .public)")
 			return
 		}
 		account!.markArticles(article!, statusKey: .starred, flag: true) { _ in }

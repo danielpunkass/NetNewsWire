@@ -7,10 +7,11 @@
 //
 
 import Foundation
-
+import UniformTypeIdentifiers
+import RSCore
 import UIKit
 
-class ArticleThemesTableViewController: UITableViewController {
+class ArticleThemesTableViewController: UITableViewController, Logging {
 
 	override func viewDidLoad() {
 		let importBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(importTheme(_:)));
@@ -27,7 +28,7 @@ class ArticleThemesTableViewController: UITableViewController {
 	}
 
 	@objc func importTheme(_ sender: Any?) {
-		let docPicker = UIDocumentPickerViewController(documentTypes: ["com.ranchero.netnewswire.theme"], in: .import)
+		let docPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.nnwTheme], asCopy: true)
 		docPicker.delegate = self
 		docPicker.modalPresentationStyle = .formSheet
 		self.present(docPicker, animated: true)
@@ -70,9 +71,10 @@ class ArticleThemesTableViewController: UITableViewController {
 	}
 
 	override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-		guard indexPath.row != 0,
-			  let cell = tableView.cellForRow(at: indexPath),
-			  let themeName = cell.textLabel?.text else { return nil }
+		guard let cell = tableView.cellForRow(at: indexPath),
+			  let themeName = cell.textLabel?.text,
+			  let theme = ArticleThemesManager.shared.articleThemeWithThemeName(themeName),
+			  !theme.isAppTheme	else { return nil }
 
 		let deleteTitle = NSLocalizedString("Delete", comment: "Delete")
 		let deleteAction = UIContextualAction(style: .normal, title: deleteTitle) { [weak self] (action, view, completion) in
@@ -116,6 +118,7 @@ extension ArticleThemesTableViewController: UIDocumentPickerDelegate {
 			try ArticleThemeImporter.importTheme(controller: self, filename: url.standardizedFileURL.path)
 		} catch {
 			NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error": error])
+			logger.error("Did fail to import theme: \(error.localizedDescription, privacy: .public)")
 		}
 	}
 	

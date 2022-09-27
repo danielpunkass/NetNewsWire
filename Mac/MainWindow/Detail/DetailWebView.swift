@@ -65,6 +65,7 @@ final class DetailWebView: WKWebView {
 		
 	private var inBigSurOffsetFix = false
 	
+	@available(macOS, obsoleted: 12, message: "when minimum deployment > macOS 11 remove bigSurOffsetFix() and calls to it.")
 	private func bigSurOffsetFix() {
 		/*
 		On macOS 11, when a user exits full screen
@@ -73,12 +74,15 @@ final class DetailWebView: WKWebView {
 		
 		This code adjusts the height of the window by -1pt/+1pt,
 		which puts the webview back in the correct place.
+		 
+		This code is only executed if currently running on macOS 11
 		*/
-		if #available(macOS 11, *) {
+		
+		if #unavailable(macOS 12) {
 			guard var frame = window?.frame else {
 				return
 			}
-
+			
 			guard !inBigSurOffsetFix else {
 				return
 			}
@@ -88,13 +92,19 @@ final class DetailWebView: WKWebView {
 			defer {
 				inBigSurOffsetFix = false
 			}
-
+			
 			frame.size = NSSize(width: window!.frame.width, height: window!.frame.height - 1)
 			window!.setFrame(frame, display: false)
-			frame.size = NSSize(width: window!.frame.width, height: window!.frame.height + 1)
+			frame.size = NSSize(width: frame.width, height: frame.height + 1)
 			window!.setFrame(frame, display: false)
 		}
 	}
+
+	// MARK: NSTextFinderClient
+
+	// Returning false here prevents the "Replace" checkbox from appearing in the find bar
+	override var isEditable: Bool { return false }
+
 }
 
 // MARK: - Private

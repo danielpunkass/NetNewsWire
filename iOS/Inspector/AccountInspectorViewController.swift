@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import SafariServices
 import Account
 
 class AccountInspectorViewController: UITableViewController {
@@ -16,6 +17,7 @@ class AccountInspectorViewController: UITableViewController {
 	@IBOutlet weak var nameTextField: UITextField!
 	@IBOutlet weak var activeSwitch: UISwitch!
 	@IBOutlet weak var deleteAccountButton: VibrantButton!
+	@IBOutlet weak var limitationsAndSolutionsButton: UIButton!
 	
 	var isModal = false
 	weak var account: Account?
@@ -34,6 +36,10 @@ class AccountInspectorViewController: UITableViewController {
 		
 		if account.type != .onMyMac {
 			deleteAccountButton.setTitle(NSLocalizedString("Remove Account", comment: "Remove Account"), for: .normal) 
+		}
+		
+		if account.type != .cloudKit {
+			limitationsAndSolutionsButton.isHidden = true
 		}
 		
 		if isModal {
@@ -60,12 +66,6 @@ class AccountInspectorViewController: UITableViewController {
 		case .feedbin:
 			let navController = UIStoryboard.account.instantiateViewController(withIdentifier: "FeedbinAccountNavigationViewController") as! UINavigationController
 			let addViewController = navController.topViewController as! FeedbinAccountViewController
-			addViewController.account = account
-			navController.modalPresentationStyle = .currentContext
-			present(navController, animated: true)
-		case .feedWrangler:
-			let navController = UIStoryboard.account.instantiateViewController(withIdentifier: "FeedWranglerAccountNavigationViewController") as! UINavigationController
-			let addViewController = navController.topViewController as! FeedWranglerAccountViewController
 			addViewController.account = account
 			navController.modalPresentationStyle = .currentContext
 			present(navController, animated: true)
@@ -121,6 +121,13 @@ class AccountInspectorViewController: UITableViewController {
 		
 		present(alertController, animated: true)
 	}
+	
+	@IBAction func openLimitationsAndSolutions(_ sender: Any) {
+		let vc = SFSafariViewController(url: CloudKitWebDocumentation.limitationsAndSolutionsURL)
+		vc.modalPresentationStyle = .pageSheet
+		present(vc, animated: true)
+	}
+	
 }
 
 // MARK: Table View

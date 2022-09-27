@@ -17,7 +17,6 @@ import RSParser
 import RSDatabase
 import ArticlesDatabase
 import RSWeb
-import os.log
 import Secrets
 
 // Main thread only.
@@ -39,7 +38,6 @@ public enum AccountType: Int, Codable {
 	case cloudKit = 2
 	case feedly = 16
 	case feedbin = 17
-	case feedWrangler = 18
 	case newsBlur = 19
 	case freshRSS = 20
 	case inoreader = 21
@@ -47,7 +45,7 @@ public enum AccountType: Int, Codable {
 	case theOldReader = 23
 	
 	public var isDeveloperRestricted: Bool {
-		return self == .cloudKit || self == .feedbin || self == .feedly || self == .feedWrangler || self == .inoreader
+		return self == .cloudKit || self == .feedbin || self == .feedly || self == .inoreader
 	}
 	
 }
@@ -72,6 +70,8 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		public static let statuses = "statuses" // StatusesDidChange
 		public static let articles = "articles" // StatusesDidChange
 		public static let articleIDs = "articleIDs" // StatusesDidChange
+		public static let statusKey = "statusKey" // StatusesDidChange
+		public static let statusFlag = "statusFlag" // StatusesDidChange
 		public static let webFeeds = "webFeeds" // AccountDidDownloadArticles, StatusesDidChange
 		public static let syncErrors = "syncErrors" // AccountsDidFailToSyncWithErrors
 	}
@@ -90,8 +90,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		
 		return defaultName
 	}()
-	
-	var log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "account")
 
 	public var isDeleted = false
 	
@@ -267,8 +265,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			self.delegate = FeedbinAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .feedly:
 			self.delegate = FeedlyAccountDelegate(dataFolder: dataFolder, transport: transport, api: FeedlyAccountDelegate.environment)
-		case .feedWrangler:
-			self.delegate = FeedWranglerAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .newsBlur:
 			self.delegate = NewsBlurAccountDelegate(dataFolder: dataFolder, transport: transport)
 		case .freshRSS:
@@ -300,8 +296,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			defaultName = NSLocalizedString("Feedly", comment: "Feedly")
 		case .feedbin:
 			defaultName = NSLocalizedString("Feedbin", comment: "Feedbin")
-		case .feedWrangler:
-			defaultName = NSLocalizedString("FeedWrangler", comment: "FeedWrangler")
 		case .newsBlur:
 			defaultName = NSLocalizedString("NewsBlur", comment: "NewsBlur")
 		case .freshRSS:
@@ -374,8 +368,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		switch type {
 		case .feedbin:
 			FeedbinAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
-		case .feedWrangler:
-			FeedWranglerAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
 		case .newsBlur:
 			NewsBlurAccountDelegate.validateCredentials(transport: transport, credentials: credentials, completion: completion)
 		case .freshRSS, .inoreader, .bazQux, .theOldReader:
@@ -508,6 +500,9 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			} else {
 				if let title = item.titleFromAttributes, let folder = ensureFolder(with: title) {
 					folder.externalID = item.attributes?["nnw_externalID"] as? String
+					if let isSyncingPaused = item.attributes?["nnw_isSyncingPaused"] as? String, isSyncingPaused == "true" {
+						folder.isSyncingPaused = true
+					}
 					item.children?.forEach { itemChild in
 						if let feedSpecifier = itemChild.feedSpecifier {
 							folder.addWebFeed(newWebFeed(with: feedSpecifier))
@@ -716,6 +711,10 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.fetchStarredAndUnreadCount(for: flattenedWebFeeds().webFeedIDs(), completion: completion)
 	}
 
+    public func fetchCountForStarredArticles() throws -> Int {
+        return try database.fetchStarredArticlesCount(flattenedWebFeeds().webFeedIDs())
+    }
+    
 	public func fetchUnreadArticleIDs(_ completion: @escaping ArticleIDsCompletionBlock) {
 		database.fetchUnreadArticleIDsAsync(completion: completion)
 	}
@@ -845,7 +844,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		database.markAndFetchNew(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { result in
 			switch result {
 			case .success(let newArticleStatusIDs):
-				self.noteStatusesForArticleIDsDidChange(articleIDs)
+				self.noteStatusesForArticleIDsDidChange(articleIDs: articleIDs, statusKey: statusKey, flag: flag)
 				completion?(.success(newArticleStatusIDs))
 			case .failure(let databaseError):
 				completion?(.failure(databaseError))
@@ -1267,6 +1266,11 @@ private extension Account {
         
 		NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.statuses: statuses, UserInfoKey.articles: articles, UserInfoKey.articleIDs: articleIDs, UserInfoKey.webFeeds: feeds])
     }
+
+	func noteStatusesForArticleIDsDidChange(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool) {
+		fetchAllUnreadCounts()
+		NotificationCenter.default.post(name: .StatusesDidChange, object: self, userInfo: [UserInfoKey.articleIDs: articleIDs, UserInfoKey.statusKey: statusKey, UserInfoKey.statusFlag: flag])
+	}
 
 	func noteStatusesForArticleIDsDidChange(_ articleIDs: Set<String>) {
 		fetchAllUnreadCounts()

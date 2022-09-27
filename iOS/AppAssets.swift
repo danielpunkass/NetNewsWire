@@ -27,10 +27,6 @@ struct AppAssets {
 		return UIImage(named: "accountFeedly")!
 	}()
 	
-	static var accountFeedWranglerImage: UIImage = {
-		return UIImage(named: "accountFeedWrangler")!
-	}()
-
 	static var accountFreshRSSImage: UIImage = {
 		return UIImage(named: "accountFreshRSS")!
 	}()
@@ -53,6 +49,14 @@ struct AppAssets {
 
 	static var accountTheOldReaderImage: UIImage = {
 		return UIImage(named: "accountTheOldReader")!
+	}()
+	
+	static var appBadgeImage: UIImage = {
+		return UIImage(systemName: "app.badge")!
+	}()
+	
+	static var articleAppearanceImage: UIImage = {
+		return UIImage(systemName: "textformat.size")!
 	}()
 
 	static var articleExtractorError: UIImage = {
@@ -98,8 +102,12 @@ struct AppAssets {
 	}()
 	
 	static var disclosureImage: UIImage = {
-		return UIImage(named: "disclosure")!
+		return UIImage(systemName: "chevron.right")!
 	}()
+	
+	static func disclosureImage(size: CGFloat, weight: UIImage.SymbolWeight) -> UIImage {
+		return UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: weight))!
+	}
 	
 	static var contextMenuReddit: UIImage = {
 		return UIImage(named: "contextMenuReddit")!
@@ -154,15 +162,15 @@ struct AppAssets {
 	}()
 	
 	static var markAllAsReadImage: UIImage = {
-		return UIImage(named: "markAllAsRead")!
-	}()
-	
-	static var markBelowAsReadImage: UIImage = {
-		return UIImage(systemName: "arrowtriangle.down.circle")!
+		return UIImage(systemName: "arrow.up.arrow.down.circle")!
 	}()
 	
 	static var markAboveAsReadImage: UIImage = {
-		return UIImage(systemName: "arrowtriangle.up.circle")!
+		return UIImage(systemName: "arrow.up.circle")!
+	}()
+	
+	static var markBelowAsReadImage: UIImage = {
+		return UIImage(systemName: "arrow.down.circle")!
 	}()
 	
 	static var masterFolderImage: IconImage = {
@@ -175,6 +183,10 @@ struct AppAssets {
 	
 	static var moreImage: UIImage = {
 		return UIImage(systemName: "ellipsis.circle")!
+	}()
+	
+	static var moreImageFill: UIImage = {
+		return UIImage(systemName: "ellipsis.circle.fill")!
 	}()
 	
 	static var nextArticleImage: UIImage = {
@@ -245,6 +257,10 @@ struct AppAssets {
 		let image = UIImage(systemName: "star.fill")!
 		return IconImage(image, isSymbol: true, isBackgroundSupressed: true, preferredColor: AppAssets.starColor.cgColor)
 	}
+	
+	static var themeImage: UIImage = {
+		return UIImage(systemName: "doc.richtext")!
+	}()
 
 	static var tickMarkColor: UIColor = {
 		return UIColor(named: "tickMarkColor")!
@@ -296,8 +312,6 @@ struct AppAssets {
 			return AppAssets.accountFeedbinImage
 		case .feedly:
 			return AppAssets.accountFeedlyImage
-		case .feedWrangler:
-			return AppAssets.accountFeedWranglerImage
 		case .freshRSS:
 			return AppAssets.accountFreshRSSImage
 		case .newsBlur:

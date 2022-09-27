@@ -19,12 +19,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 	override var accessibilityLabel: String? {
 		set {}
 		get {
-			if unreadCount > 0 {
-				let unreadLabel = NSLocalizedString("unread", comment: "Unread label for accessiblity")
-				return "\(name) \(unreadCount) \(unreadLabel) \(expandedStateMessage) "
-			} else {
-				return "\(name) \(expandedStateMessage) "
-			}
+			return "\(name) \(expandedStateMessage)"
 		}
 	}
 
@@ -35,19 +30,6 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 				return NSLocalizedString("Expanded", comment: "Disclosure button expanded state for accessibility")
 			}
 			return NSLocalizedString("Collapsed", comment: "Disclosure button collapsed state for accessibility")
-		}
-	}
-	
-	var unreadCount: Int {
-		get {
-			return unreadCountView.unreadCount
-		}
-		set {
-			if unreadCountView.unreadCount != newValue {
-				unreadCountView.unreadCount = newValue
-				updateUnreadCountView()
-				setNeedsLayout()
-			}
 		}
 	}
 	
@@ -66,7 +48,6 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 	var disclosureExpanded = false {
 		didSet {
 			updateExpandedState(animate: true)
-			updateUnreadCountView()
 		}
 	}
 	
@@ -77,33 +58,29 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 		label.numberOfLines = 0
 		label.allowsDefaultTighteningForTruncation = false
 		label.adjustsFontForContentSizeCategory = true
-		label.font = .preferredFont(forTextStyle: .body)
+		label.font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .title2).pointSize, weight: .bold)
 		return label
 	}()
 	
-	private let unreadCountView = MasterFeedUnreadCountView(frame: CGRect.zero)
-
 	private lazy var disclosureButton: UIButton = {
 		let button = NonIntrinsicButton()
-		button.tintColor = UIColor.tertiaryLabel
-		button.setImage(AppAssets.disclosureImage, for: .normal)
+		button.tintColor = AppAssets.secondaryAccentColor
+		button.setImage(AppAssets.disclosureImage(size: 14, weight: .bold), for: .normal)
 		button.contentMode = .center
-		if #available(iOS 13.4, *) {
-			button.addInteraction(UIPointerInteraction())
-		}
+		button.addInteraction(UIPointerInteraction())
 		button.addTarget(self, action: #selector(toggleDisclosure), for: .touchUpInside)
 		return button
 	}()
 
 	private let topSeparatorView: UIView = {
 		let view = UIView()
-		view.backgroundColor = UIColor.separator
+		view.backgroundColor = UIColor.clear
 		return view
 	}()
 	
 	private let bottomSeparatorView: UIView = {
 		let view = UIView()
-		view.backgroundColor = UIColor.separator
+		view.backgroundColor = UIColor.clear
 		return view
 	}()
 	
@@ -118,7 +95,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 	}
 	
 	override func sizeThatFits(_ size: CGSize) -> CGSize {
-		let layout = MasterFeedTableViewSectionHeaderLayout(cellWidth: size.width, insets: safeAreaInsets, label: titleView, unreadCountView: unreadCountView)
+		let layout = MasterFeedTableViewSectionHeaderLayout(cellWidth: size.width, insets: safeAreaInsets, label: titleView)
 		return CGSize(width: bounds.width, height: layout.height)
 		
 	}
@@ -127,8 +104,7 @@ class MasterFeedTableViewSectionHeader: UITableViewHeaderFooterView {
 		super.layoutSubviews()
 		let layout = MasterFeedTableViewSectionHeaderLayout(cellWidth: contentView.bounds.size.width,
 															insets: contentView.safeAreaInsets,
-															label: titleView,
-															unreadCountView: unreadCountView)
+															label: titleView)
 		layoutWith(layout)
 	}
 
@@ -141,7 +117,6 @@ private extension MasterFeedTableViewSectionHeader {
 	}
 	
 	func commonInit() {
-		addSubviewAtInit(unreadCountView)
 		addSubviewAtInit(titleView)
 		addSubviewAtInit(disclosureButton)
 		updateExpandedState(animate: false)
@@ -171,18 +146,6 @@ private extension MasterFeedTableViewSectionHeader {
 				}
 			})
 	}
-	
-	func updateUnreadCountView() {
-		if !disclosureExpanded && unreadCount > 0 {
-			UIView.animate(withDuration: 0.3) {
-				self.unreadCountView.alpha = 1
-			}
-		} else {
-			UIView.animate(withDuration: 0.3) {
-				self.unreadCountView.alpha = 0
-			}
-		}
-	}
 
 	func addSubviewAtInit(_ view: UIView) {
 		contentView.addSubview(view)
@@ -191,7 +154,6 @@ private extension MasterFeedTableViewSectionHeader {
 	
 	func layoutWith(_ layout: MasterFeedTableViewSectionHeaderLayout) {
 		titleView.setFrameIfNotEqual(layout.titleRect)
-		unreadCountView.setFrameIfNotEqual(layout.unreadCountRect)
 		disclosureButton.setFrameIfNotEqual(layout.disclosureButtonRect)
 		
 		let top = CGRect(x: safeAreaInsets.left, y: 0, width: frame.width - safeAreaInsets.right - safeAreaInsets.left, height: 0.33)
@@ -202,7 +164,7 @@ private extension MasterFeedTableViewSectionHeader {
 	
 	func addBackgroundView() {
 		self.backgroundView = UIView(frame: self.bounds)
-		self.backgroundView?.backgroundColor = AppAssets.sectionHeaderColor
+		self.backgroundView?.backgroundColor = .clear
 	}
 	
 }

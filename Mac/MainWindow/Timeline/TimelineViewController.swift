@@ -10,7 +10,6 @@ import Foundation
 import RSCore
 import Articles
 import Account
-import os.log
 
 protocol TimelineDelegate: AnyObject  {
 	func timelineSelectionDidChange(_: TimelineViewController, selectedArticles: [Article]?)
@@ -85,7 +84,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 
 	var showsSearchResults = false
 	var selectedArticles: [Article] {
-		return Array(articles.articlesForIndexes(tableView.selectedRowIndexes))
+		return articles.articlesForIndexes(tableView.selectedRowIndexes)
 	}
 
 	var hasAtLeastOneSelectedArticle: Bool {
@@ -207,10 +206,7 @@ final class TimelineViewController: NSViewController, UndoableCommandRunner, Unr
 		tableView.doubleAction = #selector(openArticleInBrowser(_:))
 		tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
 		tableView.keyboardDelegate = keyboardDelegate
-		
-		if #available(macOS 11.0, *) {
-			tableView.style = .inset
-		}
+		tableView.style = .inset
 		
 		if !didRegisterForNotifications {
 			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
@@ -943,7 +939,7 @@ extension TimelineViewController: NSTableViewDelegate {
 				return [action]
 
 			@unknown default:
-				os_log(.error, "Unknown table row edge: %ld", edge.rawValue)
+				print("Unknown table row edge: \(edge.rawValue)")
 		}
 
 		return []

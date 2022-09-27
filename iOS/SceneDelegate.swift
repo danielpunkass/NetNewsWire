@@ -10,39 +10,40 @@ import UIKit
 import UserNotifications
 import Account
 import Zip
+import RSCore
 
-class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+class SceneDelegate: UIResponder, UIWindowSceneDelegate, Logging {
 	
 	var window: UIWindow?
-	var coordinator = SceneCoordinator()
+	var coordinator: SceneCoordinator!
 	
 	// UIWindowScene delegate
 	
 	func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
 		
-		window = UIWindow(windowScene: scene as! UIWindowScene)
 		window!.tintColor = AppAssets.primaryAccentColor
 		updateUserInterfaceStyle()
-		window!.rootViewController = coordinator.start(for: window!.frame.size)
+		
+		let rootViewController = window!.rootViewController as! RootSplitViewController
+		coordinator = SceneCoordinator(rootSplitViewController: rootViewController)
+		rootViewController.coordinator = coordinator
+		rootViewController.delegate = coordinator
 		
 		coordinator.restoreWindowState(session.stateRestorationActivity)
 		
 		NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange), name: UserDefaults.didChangeNotification, object: nil)
 		
 		if let _ = connectionOptions.urlContexts.first?.url  {
-			window?.makeKeyAndVisible()
 			self.scene(scene, openURLContexts: connectionOptions.urlContexts)
 			return
 		}
 		
 		if let shortcutItem = connectionOptions.shortcutItem {
-			window!.makeKeyAndVisible()
 			handleShortcutItem(shortcutItem)
 			return
 		}
 		
 		if let notificationResponse = connectionOptions.notificationResponse {
-			window!.makeKeyAndVisible()
 			coordinator.handle(notificationResponse)
 			return
 		}
@@ -50,8 +51,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		if let userActivity = connectionOptions.userActivities.first ?? session.stateRestorationActivity {
 			coordinator.handle(userActivity)
 		}
-		
-		window!.makeKeyAndVisible()
+
 	}
 	
 	func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
@@ -66,9 +66,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	}
 	
 	func sceneDidEnterBackground(_ scene: UIScene) {
-		if #available(iOS 14, *) {
-			try? WidgetDataEncoder.shared.encodeWidgetData()
-		}
 		ArticleStringFormatter.emptyCaches()
 		appDelegate.prepareAccountsForBackground()
 	}
@@ -76,7 +73,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	func sceneWillEnterForeground(_ scene: UIScene) {
 		appDelegate.resumeDatabaseProcessingIfNecessary()
 		appDelegate.prepareAccountsForForeground()
-		coordinator.configurePanelMode(for: window!.frame.size)
 		coordinator.resetFocus()
 	}
 	
@@ -188,7 +184,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 					DispatchQueue.main.async {
 						NotificationCenter.default.post(name: .didBeginDownloadingTheme, object: nil)
 					}
-					let task = URLSession.shared.downloadTask(with: request) { location, response, error in
+					let task = URLSession.shared.downloadTask(with: request) { [weak self] location, response, error in
 						guard
 							  let location = location else { return }
 						
@@ -196,6 +192,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 							try ArticleThemeDownloader.shared.handleFile(at: location)
 						} catch {
 							NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error": error])
+							self?.logger.error("Failed to import theme with error: \(error.localizedDescription, privacy: .public)")
 						}
 					}
 					task.resume()

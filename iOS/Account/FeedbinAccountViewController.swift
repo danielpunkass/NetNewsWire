@@ -11,8 +11,9 @@ import Account
 import Secrets
 import RSWeb
 import SafariServices
+import RSCore
 
-class FeedbinAccountViewController: UITableViewController {
+class FeedbinAccountViewController: UITableViewController, Logging {
 
 	@IBOutlet weak var activityIndicator: UIActivityIndicatorView!
 	@IBOutlet weak var cancelBarButtonItem: UIBarButtonItem!
@@ -21,11 +22,6 @@ class FeedbinAccountViewController: UITableViewController {
 	@IBOutlet weak var showHideButton: UIButton!
 	@IBOutlet weak var actionButton: UIButton!
 	@IBOutlet weak var footerLabel: UILabel!
-	@IBOutlet weak var onepasswordButton: UIBarButtonItem! {
-		didSet {
-			onepasswordButton.image?.withTintColor(AppAssets.primaryAccentColor)
-		}
-	}
 	
 	weak var account: Account?
 	weak var delegate: AddAccountDismissDelegate?
@@ -52,10 +48,6 @@ class FeedbinAccountViewController: UITableViewController {
 
 		tableView.register(ImageHeaderView.self, forHeaderFooterViewReuseIdentifier: "SectionHeader")
 		
-		if !OnePasswordExtension.shared().isAppExtensionAvailable() {
-			onepasswordButton.isEnabled = false
-			onepasswordButton.image?.withTintColor(.clear)
-		}
 	}
 	
 	private func setupFooter() {
@@ -78,16 +70,6 @@ class FeedbinAccountViewController: UITableViewController {
 
 	@IBAction func cancel(_ sender: Any) {
 		dismiss(animated: true, completion: nil)
-	}
-	
-	@IBAction func retrievePasswordDetailsFrom1Password(_ sender: Any) {
-		OnePasswordExtension.shared().findLogin(forURLString: "feedbin.com", for: self, sender: self) { [self] loginDictionary, error in
-			if let loginDictionary = loginDictionary {
-				emailTextField.text = loginDictionary[AppExtensionUsernameKey] as? String
-				passwordTextField.text = loginDictionary[AppExtensionPasswordKey] as? String
-				actionButton.isEnabled = !(emailTextField.text?.isEmpty ?? false) && !(passwordTextField.text?.isEmpty ?? false)
-			}
-		}
 	}
 	
 	
@@ -135,7 +117,9 @@ class FeedbinAccountViewController: UITableViewController {
 						
 						do {
 							try self.account?.removeCredentials(type: .basic)
-						} catch {}
+						} catch {
+							self.logger.error("Error removing credentials: \(error.localizedDescription, privacy: .public).")
+						}
 						try self.account?.storeCredentials(credentials)
 						
 						self.account?.refreshAll() { result in
@@ -151,6 +135,7 @@ class FeedbinAccountViewController: UITableViewController {
 						self.delegate?.dismiss()
 					} catch {
 						self.showError(NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error"))
+						self.logger.error("Keychain error while storing credentials: \(error.localizedDescription, privacy: .public).")
 					}
 				} else {
 					self.showError(NSLocalizedString("Invalid email/password combination.", comment: "Credentials Error"))

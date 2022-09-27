@@ -8,29 +8,58 @@
 
 import Foundation
 import WidgetKit
-import os.log
 import UIKit
 import RSCore
 import Articles
 import Account
 
 
-public final class WidgetDataEncoder {
+public final class WidgetDataEncoder: Logging {
 	
-	private let log = OSLog(subsystem: Bundle.main.bundleIdentifier!, category: "Application")
+	
 	private let fetchLimit = 7
 	
-	private var backgroundTaskID: UIBackgroundTaskIdentifier!
 	private lazy var appGroup = Bundle.main.object(forInfoDictionaryKey: "AppGroup") as! String
 	private lazy var containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
+	private lazy var imageContainer = containerURL?.appendingPathComponent("widgetImages", isDirectory: true)
 	private lazy var dataURL = containerURL?.appendingPathComponent("widget-data.json")
 	
-	static let shared = WidgetDataEncoder()
-	private init () {}
+	private let encodeWidgetDataQueue = CoalescingQueue(name: "Encode the Widget Data", interval: 5.0)
+
+	init () {
+		if imageContainer != nil {
+			try? FileManager.default.createDirectory(at: imageContainer!, withIntermediateDirectories: true, attributes: nil)
+		}
+		if #available(iOS 14, *) {
+			NotificationCenter.default.addObserver(self, selector: #selector(statusesDidChange(_:)), name: .StatusesDidChange, object: nil)
+		}
+	}
 	
-	@available(iOS 14, *)
-	func encodeWidgetData() throws {
-		os_log(.debug, log: log, "Starting encoding widget data.")
+	func encodeIfNecessary() {
+		encodeWidgetDataQueue.performCallsImmediately()
+	}
+
+	@objc func statusesDidChange(_ note: Notification) {
+		encodeWidgetDataQueue.add(self, #selector(performEncodeWidgetData))
+	}
+
+	@objc private func performEncodeWidgetData() {
+		// We will be on the Main Thread when the encodeIfNecessary function is called. We want
+		// block the main thread in that case so that the widget data is encoded. If it is on
+		// a background Thread, it was called by the CoalescingQueue. In that case we need to
+		// move it to the Main Thread and want to execute it async.
+		if Thread.isMainThread {
+			encodeWidgetData()
+		} else {
+			DispatchQueue.main.async {
+				self.encodeWidgetData()
+			}
+		}
+	}
+	
+	private func encodeWidgetData() {
+		flushSharedContainer()
+		logger.debug("Starting encoding widget data.")
 		
 		do {
 			let unreadArticles = Array(try AccountManager.shared.fetchArticles(.unread(fetchLimit))).sortedByDate(.orderedDescending)
@@ -46,7 +75,7 @@ public final class WidgetDataEncoder {
 												  feedTitle: article.sortableName,
 												  articleTitle: ArticleStringFormatter.truncatedTitle(article).isEmpty ? ArticleStringFormatter.truncatedSummary(article) : ArticleStringFormatter.truncatedTitle(article),
 												  articleSummary: article.summary,
-												  feedIcon: article.iconImage()?.image.dataRepresentation(),
+												  feedIconPath: writeImageDataToSharedContainer(article.iconImage()?.image.dataRepresentation()),
 												  pubDate: article.datePublished?.description ?? "")
 				unread.append(latestArticle)
 			}
@@ -56,7 +85,7 @@ public final class WidgetDataEncoder {
 												  feedTitle: article.sortableName,
 												  articleTitle: ArticleStringFormatter.truncatedTitle(article).isEmpty ? ArticleStringFormatter.truncatedSummary(article) : ArticleStringFormatter.truncatedTitle(article),
 												  articleSummary: article.summary,
-												  feedIcon: article.iconImage()?.image.dataRepresentation(),
+												  feedIconPath: writeImageDataToSharedContainer(article.iconImage()?.image.dataRepresentation()),
 												  pubDate: article.datePublished?.description ?? "")
 				starred.append(latestArticle)
 			}
@@ -66,14 +95,14 @@ public final class WidgetDataEncoder {
 												  feedTitle: article.sortableName,
 												  articleTitle: ArticleStringFormatter.truncatedTitle(article).isEmpty ? ArticleStringFormatter.truncatedSummary(article) : ArticleStringFormatter.truncatedTitle(article),
 												  articleSummary: article.summary,
-												  feedIcon: article.iconImage()?.image.dataRepresentation(),
+												  feedIconPath: writeImageDataToSharedContainer(article.iconImage()?.image.dataRepresentation()),
 												  pubDate: article.datePublished?.description ?? "")
 				today.append(latestArticle)
 			}
 			
 			let latestData = WidgetData(currentUnreadCount: SmartFeedsController.shared.unreadFeed.unreadCount,
 										currentTodayCount: SmartFeedsController.shared.todayFeed.unreadCount,
-										currentStarredCount: try! SmartFeedsController.shared.starredFeed.fetchArticles().count,
+										currentStarredCount: try AccountManager.shared.fetchCountForStarredArticles(),
 										unreadArticles: unread,
 										starredArticles: starred,
 										todayArticles:today,
@@ -83,34 +112,50 @@ public final class WidgetDataEncoder {
 			DispatchQueue.global().async { [weak self] in
 				guard let self = self else { return }
 				
-				self.backgroundTaskID = UIApplication.shared.beginBackgroundTask (withName: "com.ranchero.NetNewsWire.Encode") {
-					 UIApplication.shared.endBackgroundTask(self.backgroundTaskID!)
-					self.backgroundTaskID = .invalid
-				}
 				let encodedData = try? JSONEncoder().encode(latestData)
 				
-				os_log(.debug, log: self.log, "Finished encoding widget data.")
+				self.logger.debug("Finished encoding widget data.")
 				
 				if self.fileExists() {
 					try? FileManager.default.removeItem(at: self.dataURL!)
-					os_log(.debug, log: self.log, "Removed widget data from container.")
+					self.logger.debug("Removed widget data from container.")
 				}
 				if FileManager.default.createFile(atPath: self.dataURL!.path, contents: encodedData, attributes: nil) {
-					os_log(.debug, log: self.log, "Wrote widget data to container.")
+					self.logger.debug("Wrote widget data to container.")
 					WidgetCenter.shared.reloadAllTimelines()
-					UIApplication.shared.endBackgroundTask(self.backgroundTaskID!)
-					self.backgroundTaskID = .invalid
-				} else {
-					UIApplication.shared.endBackgroundTask(self.backgroundTaskID!)
-					self.backgroundTaskID = .invalid
 				}
 				
 			}
+		} catch {
+			logger.error("WidgetDataEncoder failed to write the widget data.")
 		}
 	}
 	
 	private func fileExists() -> Bool {
 		FileManager.default.fileExists(atPath: dataURL!.path)
+	}
+	
+	private func writeImageDataToSharedContainer(_ imageData: Data?) -> String? {
+		if imageData == nil { return nil }
+		// Each image gets a UUID
+		let uuid = UUID().uuidString
+		if let imagePath = imageContainer?.appendingPathComponent(uuid, isDirectory: false) {
+			do {
+				try imageData!.write(to: imagePath)
+				return imagePath.path
+			} catch {
+				return nil
+			}
+		}
+		
+		return nil
+	}
+	
+	private func flushSharedContainer() {
+		if let imageContainer = imageContainer {
+			try? FileManager.default.removeItem(atPath: imageContainer.path)
+			try? FileManager.default.createDirectory(at: imageContainer, withIntermediateDirectories: true, attributes: nil)
+		}
 	}
 	
 }

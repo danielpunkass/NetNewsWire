@@ -11,8 +11,11 @@ import Account
 import CoreServices
 import SafariServices
 import SwiftUI
+import UniformTypeIdentifiers
+import UserNotifications
+import RSCore
 
-class SettingsViewController: UITableViewController {
+class SettingsViewController: UITableViewController, Logging {
 
 	private weak var opmlAccount: Account?
 	
@@ -28,6 +31,8 @@ class SettingsViewController: UITableViewController {
 	var scrollToArticlesSection = false
 	weak var presentingParentController: UIViewController?
 	
+	var notificationStatus: UNAuthorizationStatus = .notDetermined
+	
 	override func viewDidLoad() {
 		// This hack mostly works around a bug in static tables with dynamic type.  See: https://spin.atomicobject.com/2018/10/15/dynamic-type-static-uitableview/
 		NotificationCenter.default.removeObserver(tableView!, name: UIContentSizeCategory.didChangeNotification, object: nil)
@@ -37,10 +42,13 @@ class SettingsViewController: UITableViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(accountsDidChange), name: .UserDidDeleteAccount, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange), name: .DisplayNameDidChange, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(activeExtensionPointsDidChange), name: .ActiveExtensionPointsDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(refreshNotificationStatus(_:)), name: UIScene.willEnterForegroundNotification, object: nil)
 		
 
 		tableView.register(UINib(nibName: "SettingsComboTableViewCell", bundle: nil), forCellReuseIdentifier: "SettingsComboTableViewCell")
 		tableView.register(UINib(nibName: "SettingsTableViewCell", bundle: nil), forCellReuseIdentifier: "SettingsTableViewCell")
+		
+		refreshNotificationStatus()
 		
 		tableView.rowHeight = UITableView.automaticDimension
 		tableView.estimatedRowHeight = 44
@@ -67,7 +75,6 @@ class SettingsViewController: UITableViewController {
 			refreshClearsReadArticlesSwitch.isOn = false
 		}
 
-		
 		articleThemeDetailLabel.text = ArticleThemesManager.shared.currentTheme.name
 
 		if AppDefaults.shared.confirmMarkAllAsRead {
@@ -75,17 +82,9 @@ class SettingsViewController: UITableViewController {
 		} else {
 			confirmMarkAllAsReadSwitch.isOn = false
 		}
-
-		if AppDefaults.shared.articleFullscreenAvailable {
-			showFullscreenArticlesSwitch.isOn = true
-		} else {
-			showFullscreenArticlesSwitch.isOn = false
-		}
 		
 		colorPaletteDetailLabel.text = String(describing: AppDefaults.userInterfaceColorPalette)
-		
 		openLinksInNetNewsWire.isOn = !AppDefaults.shared.useSystemBrowser
-		
 
 		let buildLabel = NonIntrinsicLabel(frame: CGRect(x: 32.0, y: 0.0, width: 0.0, height: 0.0))
 		buildLabel.font = UIFont.systemFont(ofSize: 11.0)
@@ -109,7 +108,16 @@ class SettingsViewController: UITableViewController {
 			tableView.scrollToRow(at: IndexPath(row: 0, section: 4), at: .top, animated: true)
 			scrollToArticlesSection = false
 		}
-
+	}
+	
+	@objc
+	func refreshNotificationStatus(_ sender: Any? = nil) {
+		UNUserNotificationCenter.current().getNotificationSettings { settings in
+			DispatchQueue.main.async {
+				self.notificationStatus = settings.authorizationStatus
+				self.tableView.reloadData()
+			}
+		}
 	}
 	
 	// MARK: UITableView
@@ -117,6 +125,9 @@ class SettingsViewController: UITableViewController {
 	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
 		
 		switch section {
+		case 0:
+			if notificationStatus == .authorized { return 2 }
+			return 1
 		case 1:
 			return AccountManager.shared.accounts.count + 1
 		case 2:
@@ -128,7 +139,7 @@ class SettingsViewController: UITableViewController {
 			}
 			return defaultNumberOfRows
 		case 5:
-			return traitCollection.userInterfaceIdiom == .phone ? 4 : 3
+			return 3
 		default:
 			return super.tableView(tableView, numberOfRowsInSection: section)
 		}
@@ -179,8 +190,13 @@ class SettingsViewController: UITableViewController {
 
 		switch indexPath.section {
 		case 0:
-			UIApplication.shared.open(URL(string: "\(UIApplication.openSettingsURLString)")!)
-			tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
+			if indexPath.row == 0 {
+				UIApplication.shared.open(URL(string: "\(UIApplication.openSettingsURLString)")!)
+				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
+			} else {
+				let controller = UIStoryboard.settings.instantiateController(ofType: NotificationsViewController.self)
+				self.navigationController?.pushViewController(controller, animated: true)
+			}
 		case 1:
 			let sortedAccounts = AccountManager.shared.sortedAccounts
 			if indexPath.row == sortedAccounts.count {
@@ -243,7 +259,7 @@ class SettingsViewController: UITableViewController {
 		case 7:
 			switch indexPath.row {
 			case 0:
-				openURL("https://netnewswire.com/help/ios/6.0/en/")
+				openURL("https://netnewswire.com/help/ios/6.1/en/")
 				tableView.selectRow(at: nil, animated: true, scrollPosition: .none)
 			case 1:
 				openURL("https://netnewswire.com/")
@@ -332,14 +348,6 @@ class SettingsViewController: UITableViewController {
 			AppDefaults.shared.confirmMarkAllAsRead = true
 		} else {
 			AppDefaults.shared.confirmMarkAllAsRead = false
-		}
-	}
-	
-	@IBAction func switchFullscreenArticles(_ sender: Any) {
-		if showFullscreenArticlesSwitch.isOn {
-			AppDefaults.shared.articleFullscreenAvailable = true
-		} else {
-			AppDefaults.shared.articleFullscreenAvailable = false
 		}
 	}
 	
@@ -451,16 +459,9 @@ private extension SettingsViewController {
 	
 	func importOPMLDocumentPicker() {
 		
-		let utiArray = UTTypeCreateAllIdentifiersForTag(kUTTagClassFilenameExtension, "opml" as NSString, nil)?.takeRetainedValue() as? [String] ?? [String]()
-
-		var opmlUTIs = utiArray
-			.compactMap({ UTTypeCopyDeclaration($0 as NSString)?.takeUnretainedValue() as? [String: Any] })
-			.reduce([String]()) { (result, dict) in
-				return result + dict.values.compactMap({ $0 as? String })
-			}
-		opmlUTIs.append("public.xml")
+		let utiArray = UTType.types(tag: "opml", tagClass: .filenameExtension, conformingTo: nil)
 		
-		let docPicker = UIDocumentPickerViewController(documentTypes: opmlUTIs, in: .import)
+		let docPicker = UIDocumentPickerViewController(forOpeningContentTypes: utiArray, asCopy: true)
 		docPicker.delegate = self
 		docPicker.modalPresentationStyle = .formSheet
 		self.present(docPicker, animated: true)
@@ -509,9 +510,10 @@ private extension SettingsViewController {
 			try opmlString.write(to: tempFile, atomically: true, encoding: String.Encoding.utf8)
 		} catch {
 			self.presentError(title: "OPML Export Error", message: error.localizedDescription)
+			logger.error("OPML Export Error: \(error.localizedDescription, privacy: .public)")
 		}
 		
-		let docPicker = UIDocumentPickerViewController(url: tempFile, in: .exportToService)
+		let docPicker = UIDocumentPickerViewController(forExporting: [tempFile], asCopy: true)
 		docPicker.modalPresentationStyle = .formSheet
 		self.present(docPicker, animated: true)
 	}

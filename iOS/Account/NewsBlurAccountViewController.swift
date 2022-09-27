@@ -10,9 +10,10 @@ import UIKit
 import Account
 import Secrets
 import RSWeb
+import RSCore
 import SafariServices
 
-class NewsBlurAccountViewController: UITableViewController {
+class NewsBlurAccountViewController: UITableViewController, Logging {
 
 	@IBOutlet weak var activityIndicator: UIActivityIndicatorView!
 	@IBOutlet weak var cancelBarButtonItem: UIBarButtonItem!
@@ -21,11 +22,6 @@ class NewsBlurAccountViewController: UITableViewController {
 	@IBOutlet weak var showHideButton: UIButton!
 	@IBOutlet weak var actionButton: UIButton!
 	@IBOutlet weak var footerLabel: UILabel!
-	@IBOutlet weak var onepasswordButton: UIBarButtonItem! {
-		didSet {
-			onepasswordButton.image?.withTintColor(AppAssets.primaryAccentColor)
-		}
-	}
 
 	weak var account: Account?
 	weak var delegate: AddAccountDismissDelegate?
@@ -123,7 +119,9 @@ class NewsBlurAccountViewController: UITableViewController {
 						do {
 							try self.account?.removeCredentials(type: .newsBlurBasic)
 							try self.account?.removeCredentials(type: .newsBlurSessionId)
-						} catch {}
+						} catch {
+							self.logger.error("Error removing credentials: \(error.localizedDescription, privacy: .public).")
+						}
 						try self.account?.storeCredentials(basicCredentials)
 						try self.account?.storeCredentials(sessionCredentials)
 
@@ -140,6 +138,7 @@ class NewsBlurAccountViewController: UITableViewController {
 						self.delegate?.dismiss()
 					} catch {
 						self.showError(NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error"))
+						self.logger.error("Keychain error while storing credentials: \(error.localizedDescription, privacy: .public).")
 					}
 				} else {
 					self.showError(NSLocalizedString("Invalid username/password combination.", comment: "Credentials Error"))
@@ -156,16 +155,6 @@ class NewsBlurAccountViewController: UITableViewController {
 		let safari = SFSafariViewController(url: url)
 		safari.modalPresentationStyle = .currentContext
 		self.present(safari, animated: true, completion: nil)
-	}
-	
-	@IBAction func retrievePasswordDetailsFrom1Password(_ sender: Any) {
-		OnePasswordExtension.shared().findLogin(forURLString: "newsblur.com", for: self, sender: sender) { [self] loginDictionary, error in
-			if let loginDictionary = loginDictionary {
-				usernameTextField.text = loginDictionary[AppExtensionUsernameKey] as? String
-				passwordTextField.text = loginDictionary[AppExtensionPasswordKey] as? String
-				actionButton.isEnabled = !(usernameTextField.text?.isEmpty ?? false) && !(passwordTextField.text?.isEmpty ?? false)
-			}
-		}
 	}
 
 	@objc func textDidChange(_ note: Notification) {

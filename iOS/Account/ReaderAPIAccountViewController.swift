@@ -11,8 +11,9 @@ import Account
 import Secrets
 import RSWeb
 import SafariServices
+import RSCore
 
-class ReaderAPIAccountViewController: UITableViewController {
+class ReaderAPIAccountViewController: UITableViewController, Logging {
 
 	@IBOutlet weak var activityIndicator: UIActivityIndicatorView!
 	@IBOutlet weak var cancelBarButtonItem: UIBarButtonItem!
@@ -23,11 +24,6 @@ class ReaderAPIAccountViewController: UITableViewController {
 	@IBOutlet weak var actionButton: UIButton!
 	@IBOutlet weak var footerLabel: UILabel!
 	@IBOutlet weak var signUpButton: UIButton!
-	@IBOutlet weak var onepasswordButton: UIBarButtonItem! {
-		didSet {
-			onepasswordButton.image?.withTintColor(AppAssets.primaryAccentColor)
-		}
-	}
 	
 	weak var account: Account?
 	var accountType: AccountType?
@@ -192,6 +188,7 @@ class ReaderAPIAccountViewController: UITableViewController {
 						self.delegate?.dismiss()
 					} catch {
 						self.showError(NSLocalizedString("Keychain error while storing credentials.", comment: "Credentials Error"))
+						self.logger.error("Keychain error while storing credentials: \(error.localizedDescription, privacy: .public).")
 					}
 				} else {
 					self.showError(NSLocalizedString("Invalid username/password combination.", comment: "Credentials Error"))
@@ -267,30 +264,6 @@ class ReaderAPIAccountViewController: UITableViewController {
 		let safari = SFSafariViewController(url: url)
 		safari.modalPresentationStyle = .currentContext
 		self.present(safari, animated: true, completion: nil)
-	}
-	
-	@IBAction func retrievePasswordDetailsFrom1Password(_ sender: Any) {
-		var url: String
-		switch accountType {
-			case .bazQux:
-				url = "bazqux.com"
-			case .inoreader:
-				url = "inoreader.com"
-			case .theOldReader:
-				url = "theoldreader.com"
-			case .freshRSS:
-				url = apiURLTextField.text ?? ""
-			default:
-				url = ""
-		}
-		
-		OnePasswordExtension.shared().findLogin(forURLString: url, for: self, sender: sender) { [self] loginDictionary, error in
-			if let loginDictionary = loginDictionary {
-				usernameTextField.text = loginDictionary[AppExtensionUsernameKey] as? String
-				passwordTextField.text = loginDictionary[AppExtensionPasswordKey] as? String
-				actionButton.isEnabled = !(usernameTextField.text?.isEmpty ?? false) && !(passwordTextField.text?.isEmpty ?? false)
-			}
-		}
 	}
 	
 	private func apiURL() -> URL? {
