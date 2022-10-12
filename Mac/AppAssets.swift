@@ -182,6 +182,10 @@ struct AppAssets {
 		return NSImage(systemSymbolName: "gearshape.2", accessibilityDescription: nil)!
 	}()
 
+	static var privacyPolicyLink: NSAttributedString = {
+		return NSAttributedString(linkText: NSLocalizedString("Privacy Policy", comment: "Privacy Policy"), linkURL: URL(string: "https://netnewswire.com/privacypolicy")!)
+	}()
+	
 	static var readClosedImage: RSImage = {
 		return NSImage(systemSymbolName: "largecircle.fill.circle", accessibilityDescription: nil)!
 	}()
@@ -290,5 +294,11 @@ struct AppAssets {
 			return AppAssets.accountTheOldReader
 		}
 	}
+	
+	static var notificationSoundBlipFileName: String = {
+		//	https://freesound.org/people/cabled_mess/sounds/350862/
+		return "notificationSoundBlip.mp3"
+	}()
+
 	
 }

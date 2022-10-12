@@ -16,6 +16,7 @@ import RSCore
 import RSCoreResources
 import Secrets
 import CrashReporter
+import SwiftUI
 
 // If we're not going to import Sparkle, provide dummy protocols to make it easy
 // for AppDelegate to comply
@@ -63,6 +64,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 
 	var isShutDownSyncDone = false
 	
+	@IBOutlet var shareMenuItem: NSMenuItem!
+	@IBOutlet var fileMenuItem: NSMenuItem!
 	@IBOutlet var debugMenuItem: NSMenuItem!
 	@IBOutlet var sortByOldestArticleOnTopMenuItem: NSMenuItem!
 	@IBOutlet var sortByNewestArticleOnTopMenuItem: NSMenuItem!
@@ -217,6 +220,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			mainWindowController.restoreStateFromUserDefaults()
 		}
 		
+		fileMenuItem.submenu?.delegate = self
+		shareMenuItem.submenu?.delegate = self
+		
 		if isFirstRun {
 			mainWindowController?.window?.center()
 		}
@@ -238,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		refreshTimer = AccountRefreshTimer()
 		syncTimer = ArticleStatusSyncTimer()
 		
-		UNUserNotificationCenter.current().requestAuthorization(options:[.badge]) { (granted, error) in }
+		UNUserNotificationCenter.current().requestAuthorization(options:[.badge, .alert, .badge]) { (granted, error) in }
 
 		UNUserNotificationCenter.current().getNotificationSettings { (settings) in
 			if settings.authorizationStatus == .authorized {
@@ -677,14 +683,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 		Browser.open("https://netnewswire.com/help/mac/6.1/en/", inBackground: false)
 	}
 
-	@IBAction func donateToAppCampForGirls(_ sender: Any?) {
-		Browser.open("https://appcamp4girls.com/contribute/", inBackground: false)
-	}
-
-	@IBAction func showPrivacyPolicy(_ sender: Any?) {
-		Browser.open("https://netnewswire.com/privacypolicy", inBackground: false)
-	}
-
 	@IBAction func gotoToday(_ sender: Any?) {
 
 		createAndShowMainWindowIfNecessary()
@@ -722,7 +720,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations, 
 			self.softwareUpdater.checkForUpdates()
 		#endif
 	}
+	
+	@IBAction func showAbout(_ sender: Any?) {
+		if #available(macOS 12, *) {
+			for window in NSApplication.shared.windows {
+				if window.identifier == .aboutNetNewsWire {
+					window.makeKeyAndOrderFront(nil)
+					return
+				}
+			}
+			let controller = AboutWindowController()
+			controller.window?.makeKeyAndOrderFront(nil)
+		} else {
+			NSApplication.shared.orderFrontStandardAboutPanel(self)
+		}
+	}
 
+}
+
+// MARK: - NSMenuDelegate
+
+extension AppDelegate: NSMenuDelegate {
+
+	public func menuNeedsUpdate(_ menu: NSMenu) {
+		let newShareMenu = mainWindowController?.shareMenu
+		
+		guard menu != fileMenuItem.submenu else {
+			shareMenuItem.isEnabled = newShareMenu != nil
+			return
+		}
+		
+		menu.removeAllItems()
+		if let newShareMenu = newShareMenu {
+			menu.takeItems(from: newShareMenu)
+		}
+	}
+	
 }
 
 // MARK: - Debug Menu

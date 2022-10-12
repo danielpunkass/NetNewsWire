@@ -306,7 +306,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		if let navController = self.articleViewController?.navigationController {
 			configureNavigationController(navController)
 		}
-
+		
 		for sectionNode in treeController.rootNode.childNodes {
 			markExpanded(sectionNode)
 			shadowTable.append((sectionID: "", feedNodes: [FeedNode]()))
@@ -1323,6 +1323,10 @@ extension SceneCoordinator: UISplitViewControllerDelegate {
 		}
 	}
 	
+	func splitViewController(_ svc: UISplitViewController, willChangeTo displayMode: UISplitViewController.DisplayMode) {
+		articleViewController?.splitViewControllerWillChangeTo(displayMode: displayMode)
+	}
+	
 }
 
 // MARK: UINavigationControllerDelegate
@@ -1358,7 +1362,7 @@ extension SceneCoordinator: UINavigationControllerDelegate {
 		// This happens when we are going to the next unread and we need to grab another timeline to continue.  The
 		// ArticleViewController will be pushed, but we will briefly show the Timeline.  Don't clear things out when that happens.
 		if viewController === masterTimelineViewController && lastMainControllerToAppear == .article {
-			selectArticle(nil)
+			selectArticle(nil, animations: [.scroll, .select, .navigation])
 
 			// Restore any bars hidden by the article controller
 			showStatusBar()
