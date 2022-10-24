@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="21225" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="21507" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="21225"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="21507"/>
     </dependencies>
     <scenes>
         <!--Application-->
@@ -501,18 +501,6 @@
                                         <menuItem title="Mark Below as Read" keyEquivalent="K" id="8lZ-XI-I4y">
                                             <connections>
                                                 <action selector="markBelowArticlesAsRead:" target="Ady-hI-5gd" id="Jnm-LF-mrf"/>
-                                            </connections>
-                                        </menuItem>
-                                        <menuItem title="Mark Everything as Read…" keyEquivalent="K" id="Rrw-jx-qnJ">
-                                            <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
-                                            <connections>
-                                                <action selector="markEverywhereAsRead:" target="Voe-Tx-rLC" id="xp2-1J-6z0"/>
-                                            </connections>
-                                        </menuItem>
-                                        <menuItem title="Mark Everything as Read…" keyEquivalent="K" id="Rrw-jx-qnJ">
-                                            <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
-                                            <connections>
-                                                <action selector="markEverywhereAsRead:" target="Voe-Tx-rLC" id="xp2-1J-6z0"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem isSeparatorItem="YES" id="gB0-WX-2Gd"/>
