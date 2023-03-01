@@ -15,7 +15,6 @@ import RSParser
 enum AddFeedType {
 	case web
 	case reddit
-	case twitter
 }
 
 class AddFeedViewController: UITableViewController {
@@ -44,9 +43,6 @@ class AddFeedViewController: UITableViewController {
 		case .reddit:
 			navigationItem.title = NSLocalizedString("Add Reddit Feed", comment: "Add Reddit Feed")
 			navigationItem.leftBarButtonItem = nil
-		case .twitter:
-			navigationItem.title = NSLocalizedString("Add Twitter Feed", comment: "Add Twitter Feed")
-			navigationItem.leftBarButtonItem = nil
 		default:
 			break
 		}
@@ -54,10 +50,8 @@ class AddFeedViewController: UITableViewController {
 		activityIndicator.isHidden = true
 		activityIndicator.color = .label
 		
-		if initialFeed == nil, let urlString = UIPasteboard.general.string {
-			if urlString.mayBeURL {
-				initialFeed = urlString.normalizedURL
-			}
+		if initialFeed == nil && UIPasteboard.general.hasURLs, let url = UIPasteboard.general.url {
+			initialFeed = url.absoluteString.normalizedURL
 		}
 		
 		urlTextField.autocorrectionType = .no

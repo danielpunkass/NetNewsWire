@@ -42,6 +42,8 @@ final class AppDefaults {
 		static let exportOPMLAccountID = "exportOPMLAccountID"
 		static let defaultBrowserID = "defaultBrowserID"
 		static let currentThemeName = "currentThemeName"
+		static let hasSeenNotAllArticlesHaveURLsAlert = "hasSeenNotAllArticlesHaveURLsAlert"
+		static let twitterDeprecationAlertShown = "twitterDeprecationAlertShown"
 
 		// Hidden prefs
 		static let showDebugMenu = "ShowDebugMenu"
@@ -220,6 +222,15 @@ final class AppDefaults {
 			AppDefaults.setString(for: Key.currentThemeName, newValue)
 		}
 	}
+
+	var hasSeenNotAllArticlesHaveURLsAlert: Bool {
+		get {
+			return UserDefaults.standard.bool(forKey: Key.hasSeenNotAllArticlesHaveURLsAlert)
+		}
+		set {
+			UserDefaults.standard.set(newValue, forKey: Key.hasSeenNotAllArticlesHaveURLsAlert)
+		}
+	}
 	
 	var showTitleOnMainWindow: Bool {
 		return AppDefaults.bool(for: Key.showTitleOnMainWindow)
@@ -308,6 +319,16 @@ final class AppDefaults {
 			UserDefaults.standard.set(newValue.rawValue, forKey: Key.refreshInterval)
 		}
 	}
+	
+	var twitterDeprecationAlertShown: Bool {
+		get {
+			return AppDefaults.bool(for: Key.twitterDeprecationAlertShown)
+		}
+		set {
+			AppDefaults.setBool(for: Key.twitterDeprecationAlertShown, newValue)
+		}
+	}
+	
 
 	func registerDefaults() {
 		#if DEBUG

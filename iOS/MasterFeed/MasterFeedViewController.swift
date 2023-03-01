@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import SwiftUI
 import Account
 import Articles
 import RSCore
@@ -16,14 +17,16 @@ import SafariServices
 class MasterFeedViewController: UITableViewController, UndoableCommandRunner, MainControllerIdentifiable {
 
 	@IBOutlet weak var filterButton: UIBarButtonItem!
-	private var refreshProgressView: RefreshProgressView?
 	@IBOutlet weak var addNewItemButton: UIBarButtonItem! {
 		didSet {
 			addNewItemButton.primaryAction = nil
 		}
 	}
 
-	var mainControllerIdentifer = MainControllerIdentifier.masterFeed
+	let refreshProgressModel = RefreshProgressModel()
+	lazy var progressBarViewController = UIHostingController(rootView: RefreshProgressView(progressBarMode: refreshProgressModel))
+	
+	var mainControllerIdentifier = MainControllerIdentifier.masterFeed
 	
 	weak var coordinator: SceneCoordinator!
 	var undoableCommands = [UndoableCommand]()
@@ -71,11 +74,17 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		NotificationCenter.default.addObserver(self, selector: #selector(contentSizeCategoryDidChange), name: UIContentSizeCategory.didChangeNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(configureContextMenu(_:)), name: .ActiveExtensionPointsDidChange, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayNameDidChange(_:)), name: .DisplayNameDidChange, object: nil)
 
 		refreshControl = UIRefreshControl()
 		refreshControl!.addTarget(self, action: #selector(refreshAccounts(_:)), for: .valueChanged)
+		refreshControl!.tintColor = .clear
+
+		progressBarViewController.view.backgroundColor = .clear
+		progressBarViewController.view.translatesAutoresizingMaskIntoConstraints = false
+		let refreshProgressItemButton = UIBarButtonItem(customView: progressBarViewController.view)
+		toolbarItems?.insert(refreshProgressItemButton, at: 2)
 		
-		configureToolbar()
 		becomeFirstResponder()
 	}
 
@@ -83,6 +92,16 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		navigationController?.isToolbarHidden = false		
 		updateUI()
 		super.viewWillAppear(animated)
+	}
+	
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		
+		if (isBeingPresented || isMovingToParent) {
+			// Only show the Twitter alert the first time
+			// the view is presented.
+			presentTwitterDeprecationAlertIfRequired()
+		}
 	}
 	
 	override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -137,6 +156,13 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		if key == WebFeed.WebFeedSettingKey.homePageURL || key == WebFeed.WebFeedSettingKey.faviconURL {
 			configureCellsForRepresentedObject(webFeed)
 		}
+	}
+	
+	@objc func displayNameDidChange(_ note: Notification) {
+		guard let object = note.object as? AnyObject else {
+			return
+		}
+		reloadCell(for: object)
 	}
 	
 	@objc func contentSizeCategoryDidChange(_ note: Notification) {
@@ -515,7 +541,9 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 
 	func updateFeedSelection(animations: Animations) {
 		if let indexPath = coordinator.currentFeedIndexPath {
-			tableView.selectRowAndScrollIfNotVisible(at: indexPath, animations: animations)
+			if indexPath != tableView.indexPathForSelectedRow {
+				tableView.selectRowAndScrollIfNotVisible(at: indexPath, animations: animations)
+			}
 		} else {
 			if let indexPath = tableView.indexPathForSelectedRow {
 				if animations.contains(.select) {
@@ -587,7 +615,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		} else {
 			setFilterButtonToInactive()
 		}
-		refreshProgressView?.update()
+		refreshProgressModel.update()
 		addNewItemButton?.isEnabled = !AccountManager.shared.activeAccounts.isEmpty
 
 		configureContextMenu()
@@ -599,8 +627,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 			Context Menu Order:
 			1. Add Web Feed
 			2. Add Reddit Feed
-			3. Add Twitter Feed
-			4. Add Folder
+			3. Add Folder
 		*/
 		
 		var menuItems: [UIAction] = []
@@ -619,13 +646,6 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 				}
 				menuItems.append(addRedditFeedAction)
 			}
-			if ExtensionPointManager.shared.isTwitterEnabled {
-				let addTwitterFeedActionTitle = NSLocalizedString("Add Twitter Feed", comment: "Add Twitter Feed")
-				let addTwitterFeedAction = UIAction(title: addTwitterFeedActionTitle, image: AppAssets.contextMenuTwitter.tinted(color: .label)) { _ in
-					self.coordinator.showAddTwitterFeed()
-				}
-				menuItems.append(addTwitterFeedAction)
-			}
 		}
 					
 		let addWebFolderActionTitle = NSLocalizedString("Add Folder", comment: "Add Folder")
@@ -639,7 +659,7 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		
 		self.addNewItemButton.menu = contextMenu
 	}
-	
+		
 	func focus() {
 		becomeFirstResponder()
 	}
@@ -652,6 +672,29 @@ class MasterFeedViewController: UITableViewController, UndoableCommandRunner, Ma
 		}
 	}
 	
+	private func presentTwitterDeprecationAlertIfRequired() {
+		if AppDefaults.shared.twitterDeprecationAlertShown { return }
+		
+		let expiryDate = Date(timeIntervalSince1970: 1691539200) // August 9th 2023, 00:00 UTC
+		let currentDate = Date()
+		if currentDate > expiryDate {
+			return // If after August 9th, don't show
+		}
+		
+		if AccountManager.shared.anyLocalOriCloudAccountHasAtLeastOneTwitterFeed() {
+			showTwitterDeprecationAlert()
+		}
+		AppDefaults.shared.twitterDeprecationAlertShown = true
+	}
+	
+	private func showTwitterDeprecationAlert() {
+		let alert = UIAlertController(title: NSLocalizedString("Twitter Integration Removed", comment: "Twitter Integration Removed"),
+									  message: NSLocalizedString("On February 1, 2023, Twitter announced the end of free access to the Twitter API, effective February 9.\n\nSince Twitter does not provide RSS feeds, we’ve had to use the Twitter API. Without free access to that API, we can’t read feeds from Twitter.\n\nWe’ve left your Twitter feeds intact. If you have any starred items from those feeds, they will remain as long as you don’t delete those feeds.\n\nYou can still read whatever you have already downloaded. However, those feeds will no longer update.", comment: "Twitter deprecation message"),
+									  preferredStyle: .alert)
+		
+		alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+		present(alert, animated: true)
+	}
 }
 
 // MARK: UIContextMenuInteractionDelegate
@@ -675,6 +718,9 @@ extension MasterFeedViewController: UIContextMenuInteractionDelegate {
 				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
 			}
 
+			if let catchUpAction = self.catchUpActionMenu(account: account, contentView: interaction.view) {
+				menuElements.append(catchUpAction)
+			}
 			menuElements.append(UIMenu(title: "", options: .displayInline, children: [self.deactivateAccountAction(account: account)]))
 			
             return UIMenu(title: "", children: menuElements)
@@ -719,16 +765,6 @@ extension MasterFeedViewController: MasterFeedTableViewCellDelegate {
 // MARK: Private
 
 private extension MasterFeedViewController {
-	
-	func configureToolbar() {
-		guard let refreshProgressView = Bundle.main.loadNibNamed("RefreshProgressView", owner: self, options: nil)?[0] as? RefreshProgressView else {
-			return
-		}
-
-		self.refreshProgressView = refreshProgressView
-		let refreshProgressItemButton = UIBarButtonItem(customView: refreshProgressView)
-		toolbarItems?.insert(refreshProgressItemButton, at: 2)
-	}
 	
 	func setFilterButtonToActive() {
 		filterButton?.image = AppAssets.filterActiveImage
@@ -831,6 +867,12 @@ private extension MasterFeedViewController {
 			completion(cell as! MasterFeedTableViewCell, indexPath)
 		}
 	}
+	
+	private func reloadCell(for object: AnyObject) {
+		guard let indexPath = coordinator.indexPathFor(object) else { return }
+		tableView.reloadRows(at: [indexPath], with: .none)
+		restoreSelectionIfNecessary(adjustScroll: false)
+	}
 
 	private func reloadAllVisibleCells(completion: (() -> Void)? = nil) {
 		guard let indexPaths = tableView.indexPathsForVisibleRows else { return }
@@ -907,6 +949,11 @@ private extension MasterFeedViewController {
 
 			if let markAllAction = self.markAllAsReadAction(indexPath: indexPath) {
 				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
+
+			}
+
+			if let catchUpAction = self.catchUpActionMenu(indexPath: indexPath) {
+				menuElements.append(catchUpAction)
 			}
 			
 			if includeDeleteRename {
@@ -934,6 +981,10 @@ private extension MasterFeedViewController {
 			if let markAllAction = self.markAllAsReadAction(indexPath: indexPath) {
 				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
 			}
+
+			if let catchUpAction = self.catchUpActionMenu(indexPath: indexPath) {
+				menuElements.append(catchUpAction)
+			}
 			
 			menuElements.append(UIMenu(title: "",
 									   options: .displayInline,
@@ -947,13 +998,22 @@ private extension MasterFeedViewController {
 		})
 	}
 
-	func makePseudoFeedContextMenu(indexPath: IndexPath) -> UIContextMenuConfiguration? {
-		guard let markAllAction = self.markAllAsReadAction(indexPath: indexPath) else {
-			return nil
-		}
+	func makePseudoFeedContextMenu(indexPath: IndexPath) -> UIContextMenuConfiguration {
+		return UIContextMenuConfiguration(identifier: MasterFeedRowIdentifier(indexPath: indexPath), previewProvider: nil, actionProvider: { [weak self] suggestedActions in
 
-		return UIContextMenuConfiguration(identifier: MasterFeedRowIdentifier(indexPath: indexPath), previewProvider: nil, actionProvider: { suggestedActions in
-			return UIMenu(title: "", children: [markAllAction])
+			guard let self = self else { return nil }
+
+			var menuElements = [UIMenuElement]()
+
+			if let markAllAction = self.markAllAsReadAction(indexPath: indexPath) {
+				menuElements.append(UIMenu(title: "", options: .displayInline, children: [markAllAction]))
+			}
+
+			if let catchUpAction = self.catchUpActionMenu(indexPath: indexPath) {
+				menuElements.append(catchUpAction)
+			}
+
+			return UIMenu(title: "", children: menuElements)
 		})
 	}
 
@@ -1045,8 +1105,7 @@ private extension MasterFeedViewController {
 				return nil
 		}
 		
-		let localizedMenuText = NSLocalizedString("Mark All as Read in “%@”", comment: "Command")
-		let title = NSString.localizedStringWithFormat(localizedMenuText as NSString, webFeed.nameForDisplay) as String
+		let title = NSLocalizedString("Mark All as Read", comment: "Command")
 		let cancel = {
 			completion(true)
 		}
@@ -1126,8 +1185,7 @@ private extension MasterFeedViewController {
 				  return nil
 			  }
 		
-		let localizedMenuText = NSLocalizedString("Mark All as Read in “%@”", comment: "Command")
-		let title = NSString.localizedStringWithFormat(localizedMenuText as NSString, feed.nameForDisplay) as String
+		let title = NSLocalizedString("Mark All as Read", comment: "Command")
 		let action = UIAction(title: title, image: AppAssets.markAllAsReadImage) { [weak self] action in
 			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: title, sourceType: contentView) { [weak self] in
 				if let articles = try? feed.fetchUnreadArticles() {
@@ -1139,13 +1197,103 @@ private extension MasterFeedViewController {
 		return action
 	}
 
+	func catchUpActionMenu(indexPath: IndexPath) -> UIMenu? {
+		guard let feed = coordinator.nodeFor(indexPath)?.representedObject as? Feed,
+			  let contentView = self.tableView.cellForRow(at: indexPath)?.contentView,
+			  feed.unreadCount > 0 else {
+				  return nil
+			  }
+
+		// Doesn't make sense to mark articles newer than a day with catch up with first option being older than a day
+		if let maybeSmartFeed = feed as? SmartFeed {
+			if maybeSmartFeed.delegate is TodayFeedDelegate {
+				return nil
+			}
+		}
+
+		let title = NSLocalizedString("Mark as Read Older Than", comment: "Command")
+		let oneDayAction = UIAction(title: "1 Day") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Day as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .day, value: -1, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let twoDayAction = UIAction(title: "2 Days") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 2 Days as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .day, value: -2, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let threeDayAction = UIAction(title: "3 Days") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 3 Days as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .day, value: -3, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let oneWeekAction = UIAction(title: "1 Week") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Week as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .weekOfYear, value: -1, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let twoWeekAction = UIAction(title: "2 Weeks") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 2 Weeks as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .weekOfYear, value: -2, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let oneMonthAction = UIAction(title: "1 Month") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Month as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .month, value: -1, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		let oneYearAction = UIAction(title: "1 Year") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Year as Read", sourceType: contentView) { [weak self] in
+				let cutoff = Calendar.current.date(byAdding: .year, value: -1, to: Date())
+				if let articles = try? feed.fetchUnreadArticlesBetween(before: cutoff, after: nil) {
+					self?.coordinator.markAllAsRead(Array(articles))
+				}
+			}
+		}
+		var markActions = [UIAction]()
+		markActions.append(oneDayAction)
+		markActions.append(twoDayAction)
+		markActions.append(threeDayAction)
+		markActions.append(oneWeekAction)
+		markActions.append(twoWeekAction)
+		markActions.append(oneMonthAction)
+		markActions.append(oneYearAction)
+		let majorMenu = UIMenu(title: title, image: getMarkOlderImageDirection(), children: markActions)
+
+		return majorMenu
+	}
+
+	func getMarkOlderImageDirection() -> UIImage {
+		if AppDefaults.shared.timelineSortDirection == .orderedDescending {
+			return AppAssets.markBelowAsReadImage
+		} else {
+			return AppAssets.markAboveAsReadImage
+		}
+	}
 	func markAllAsReadAction(account: Account, contentView: UIView?) -> UIAction? {
 		guard account.unreadCount > 0, let contentView = contentView else {
 			return nil
 		}
 
-		let localizedMenuText = NSLocalizedString("Mark All as Read in “%@”", comment: "Command")
-		let title = NSString.localizedStringWithFormat(localizedMenuText as NSString, account.nameForDisplay) as String
+		let title = NSLocalizedString("Mark All as Read", comment: "Command")
 		let action = UIAction(title: title, image: AppAssets.markAllAsReadImage) { [weak self] action in
 			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: title, sourceType: contentView) { [weak self] in
 				// If you don't have this delay the screen flashes when it executes this code
@@ -1158,6 +1306,102 @@ private extension MasterFeedViewController {
 		}
 
 		return action
+	}
+
+	func catchUpActionMenu(account: Account, contentView: UIView?) -> UIMenu? {
+		guard account.unreadCount > 0, let contentView = contentView else {
+			return nil
+		}
+
+		let title = NSLocalizedString("Mark as Read Older Than", comment: "Command")
+		let oneDayAction = UIAction(title: "1 Day") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Day as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .day, value: -1, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let twoDayAction = UIAction(title: "2 Days") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 2 Days as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .day, value: -2, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let threeDayAction = UIAction(title: "3 Days") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 3 Days as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .day, value: -3, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let oneWeekAction = UIAction(title: "1 Week") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Week as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .weekOfYear, value: -1, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let twoWeekAction = UIAction(title: "2 Weeks") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 2 Weeks as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .weekOfYear, value: -2, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let oneMonthAction = UIAction(title: "1 Month") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Month as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .month, value: -1, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		let oneYearAction = UIAction(title: "1 Year") { [weak self] action in
+			MarkAsReadAlertController.confirm(self, coordinator: self?.coordinator, confirmTitle: "Mark Older Than 1 Year as Read", sourceType: contentView) { [weak self] in
+				// If you don't have this delay the screen flashes when it executes this code
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+					let cutoff = Calendar.current.date(byAdding: .year, value: -1, to: Date())
+					if let articles = try? account.fetchUnreadArticlesBetween(limit: nil, before: cutoff, after: nil) {
+						self?.coordinator.markAllAsRead(Array(articles))
+					}
+				}
+			}
+		}
+		var markActions = [UIAction]()
+		markActions.append(oneDayAction)
+		markActions.append(twoDayAction)
+		markActions.append(threeDayAction)
+		markActions.append(oneWeekAction)
+		markActions.append(twoWeekAction)
+		markActions.append(oneMonthAction)
+		markActions.append(oneYearAction)
+		let majorMenu = UIMenu(title: title, image: getMarkOlderImageDirection(), children: markActions)
+
+		return majorMenu
 	}
 
 

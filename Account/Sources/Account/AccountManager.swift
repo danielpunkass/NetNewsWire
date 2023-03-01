@@ -11,6 +11,7 @@ import RSCore
 import RSWeb
 import Articles
 import ArticlesDatabase
+import RSDatabase
 
 // Main thread only.
 
@@ -70,6 +71,9 @@ public final class AccountManager: UnreadCountProvider {
 				if lastArticleFetchEndTime == nil || lastArticleFetchEndTime! < accountLastArticleFetchEndTime {
 					lastArticleFetchEndTime = accountLastArticleFetchEndTime
 				}
+			} else {
+				lastArticleFetchEndTime = nil
+				break
 			}
 		}
 		return lastArticleFetchEndTime
@@ -265,34 +269,6 @@ public final class AccountManager: UnreadCountProvider {
 		}
 	}
 	
-	public func refreshAll(completion: (() -> Void)? = nil) {
-		guard let reachability = try? Reachability(hostname: "apple.com"), reachability.connection != .unavailable else { return }
-
-		var syncErrors = [AccountSyncError]()
-		let group = DispatchGroup()
-		
-		activeAccounts.forEach { account in
-			group.enter()
-			account.refreshAll() { result in
-				group.leave()
-				switch result {
-				case .success:
-					break
-				case .failure(let error):
-					syncErrors.append(AccountSyncError(account: account, error: error))
-				}
-			}
-		}
-		
-		group.notify(queue: DispatchQueue.main) {
-			if syncErrors.count > 0 {
-				NotificationCenter.default.post(Notification(name: .AccountsDidFailToSyncWithErrors, object: self, userInfo: [Account.UserInfoKey.syncErrors: syncErrors]))
-			}
-			completion?()
-		}
-		
-	}
-
 	public func sendArticleStatusAll(completion: (() -> Void)? = nil) {
 		let group = DispatchGroup()
 		
@@ -350,6 +326,26 @@ public final class AccountManager: UnreadCountProvider {
 		return false
 	}
 
+    public func anyLocalOriCloudAccountHasAtLeastOneTwitterFeed() -> Bool {
+        // We removed our Twitter code, and the ability to read feeds from Twitter,
+        // when Twitter announced the end of the free tier for the Twitter API.
+        // We are cheering on Twitter’s increasing irrelevancy.
+        
+        for account in accounts {
+            if account.type == .cloudKit || account.type == .onMyMac {
+                for webfeed in account.flattenedWebFeeds() {
+                    if let components = URLComponents(string: webfeed.url), let host = components.host {
+                        if host == "twitter.com" { // Allow, for instance, blog.twitter.com, which might have an actual RSS feed
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        
+        return false
+    }
+    
 	// MARK: - Fetching Articles
 
 	// These fetch articles from active accounts and return a merged Set<Article>.
@@ -365,33 +361,53 @@ public final class AccountManager: UnreadCountProvider {
 	}
 
 	public func fetchArticlesAsync(_ fetchType: FetchType, _ completion: @escaping ArticleSetResultBlock) {
+        precondition(Thread.isMainThread)
+        
+        guard activeAccounts.count > 0 else {
+            completion(.success(Set<Article>()))
+            return
+        }
+        
+        var allFetchedArticles = Set<Article>()
+        var databaseError: DatabaseError?
+        let dispatchGroup = DispatchGroup()
+        
+        for account in activeAccounts {
+            
+            dispatchGroup.enter()
+            
+            account.fetchArticlesAsync(fetchType) { (articleSetResult) in
+                precondition(Thread.isMainThread)
+                
+                switch articleSetResult {
+                case .success(let articles):
+                    allFetchedArticles.formUnion(articles)
+                case .failure(let error):
+                    databaseError = error
+                }
+                
+                dispatchGroup.leave()
+            }
+        }
+        
+        dispatchGroup.notify(queue: .main) {
+            if let databaseError {
+                completion(.failure(databaseError))
+            }
+            else {
+                completion(.success(allFetchedArticles))
+            }
+        }
+    }
+
+	public func fetchUnreadArticlesBetween(limit: Int? = nil, before: Date? = nil, after: Date? = nil) throws -> Set<Article> {
 		precondition(Thread.isMainThread)
-		
-		var allFetchedArticles = Set<Article>()
-		let numberOfAccounts = activeAccounts.count
-		var accountsReporting = 0
-		
-		guard numberOfAccounts > 0 else {
-			completion(.success(allFetchedArticles))
-			return
-		}
 
+		var articles = Set<Article>()
 		for account in activeAccounts {
-			account.fetchArticlesAsync(fetchType) { (articleSetResult) in
-				accountsReporting += 1
-
-				switch articleSetResult {
-				case .success(let articles):
-					allFetchedArticles.formUnion(articles)
-					if accountsReporting == numberOfAccounts {
-						completion(.success(allFetchedArticles))
-					}
-				case .failure(let databaseError):
-					completion(.failure(databaseError))
-					return
-				}
-			}
+			articles.formUnion(try account.fetchUnreadArticlesBetween(limit: limit, before: before, after: after))
 		}
+		return articles
 	}
     
     // MARK: - Fetching Article Counts

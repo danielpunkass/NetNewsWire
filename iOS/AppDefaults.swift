@@ -28,7 +28,7 @@ enum UserInterfaceColorPalette: Int, CustomStringConvertible, CaseIterable {
 
 final class AppDefaults {
 
-	static let defaultThemeName = "Default"
+	static let defaultThemeName = "NetNewsWire"
 	
 	static let shared = AppDefaults()
 	private init() {}
@@ -53,12 +53,12 @@ final class AppDefaults {
 		static let articleFullscreenEnabled = "articleFullscreenEnabled"
 		static let hasUsedFullScreenPreviously = "hasUsedFullScreenPreviously"
 		static let confirmMarkAllAsRead = "confirmMarkAllAsRead"
-		static let lastRefresh = "lastRefresh"
 		static let addWebFeedAccountID = "addWebFeedAccountID"
 		static let addWebFeedFolderName = "addWebFeedFolderName"
 		static let addFolderAccountID = "addFolderAccountID"
 		static let useSystemBrowser = "useSystemBrowser"
 		static let currentThemeName = "currentThemeName"
+		static let twitterDeprecationAlertShown = "twitterDeprecationAlertShown"
 	}
 
 	let isDeveloperBuild: Bool = {
@@ -196,15 +196,6 @@ final class AppDefaults {
 		}
 	}
 	
-	var lastRefresh: Date? {
-		get {
-			return AppDefaults.date(for: Key.lastRefresh)
-		}
-		set {
-			AppDefaults.setDate(for: Key.lastRefresh, newValue)
-		}
-	}
-	
 	var timelineNumberOfLines: Int {
 		get {
 			return AppDefaults.int(for: Key.timelineNumberOfLines)
@@ -230,6 +221,15 @@ final class AppDefaults {
 		}
 		set {
 			AppDefaults.setString(for: Key.currentThemeName, newValue)
+		}
+	}
+	
+	var twitterDeprecationAlertShown: Bool {
+		get {
+			return AppDefaults.bool(for: Key.twitterDeprecationAlertShown)
+		}
+		set {
+			AppDefaults.setBool(for: Key.twitterDeprecationAlertShown, newValue)
 		}
 	}
 	

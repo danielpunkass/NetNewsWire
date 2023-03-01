@@ -11,8 +11,9 @@ import WebKit
 import Account
 import Articles
 import SafariServices
+import RSCore
 
-class ArticleViewController: UIViewController, MainControllerIdentifiable {
+class ArticleViewController: UIViewController, MainControllerIdentifiable, Logging {
 	
 	typealias State = (extractedArticle: ExtractedArticle?,
 					   isShowingExtractedArticle: Bool,
@@ -44,7 +45,7 @@ class ArticleViewController: UIViewController, MainControllerIdentifiable {
 		return button
 	}()
 	
-	var mainControllerIdentifer = MainControllerIdentifier.article
+	var mainControllerIdentifier = MainControllerIdentifier.article
 	
 	weak var coordinator: SceneCoordinator!
 	
@@ -259,19 +260,19 @@ class ArticleViewController: UIViewController, MainControllerIdentifiable {
 								  identifier: nil,
 								  discoverabilityTitle: nil,
 								  attributes: [],
-								  state: ArticleThemesManager.shared.currentThemeName == themeName ? .on : .off,
+								  state: ArticleThemesManager.shared.currentTheme.name == themeName ? .on : .off,
 								  handler: { action in
 				ArticleThemesManager.shared.currentThemeName = themeName
 			})
 			themeActions.append(action)
 		}
 		
-		let defaultThemeAction = UIAction(title: NSLocalizedString("Default", comment: "Default"),
+		let defaultThemeAction = UIAction(title: "NetNewsWire",
 										  image: nil,
 										  identifier: nil,
 										  discoverabilityTitle: nil,
 										  attributes: [],
-										  state: ArticleThemesManager.shared.currentThemeName == AppDefaults.defaultThemeName ? .on : .off,
+										  state: ArticleThemesManager.shared.currentTheme.name == AppDefaults.defaultThemeName ? .on : .off,
 										  handler: { _ in
 			ArticleThemesManager.shared.currentThemeName = AppDefaults.defaultThemeName
 		})

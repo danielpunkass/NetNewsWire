@@ -153,7 +153,7 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	
 	public var sortedFolders: [Folder]? {
 		if let folders = folders {
-			return Array(folders).sorted(by: { $0.nameForDisplay.caseInsensitiveCompare($1.nameForDisplay) == .orderedAscending })
+			return folders.sorted()
 		}
 		return nil
 	}
@@ -517,10 +517,6 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		addOPMLItems(OPMLNormalizer.normalize(items))		
 	}
 	
-	public func markArticles(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
-		delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag, completion: completion)
-	}
-
 	func existingContainer(withExternalID externalID: String) -> Container? {
 		guard self.externalID != externalID else {
 			return self
@@ -639,6 +635,10 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 		delegate.restoreFolder(for: self, folder: folder, completion: completion)
 	}
 	
+	public func mark(articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping (Result<Void, Error>) -> Void) {
+		delegate.markArticles(for: self, articles: articles, statusKey: statusKey, flag: flag, completion: completion)
+	}
+	
 	func clearWebFeedMetadata(_ feed: WebFeed) {
 		webFeedMetadata[feed.url] = nil
 	}
@@ -651,6 +651,22 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 	
 	public func updateUnreadCounts(for webFeeds: Set<WebFeed>, completion: VoidCompletionBlock? = nil) {
 		fetchUnreadCounts(for: webFeeds, completion: completion)
+	}
+
+	public func fetchUnreadArticlesBetween(limit: Int?, before: Date?, after: Date?) throws -> Set<Article> {
+		return try fetchUnreadArticlesBetween(forContainer: self, limit: limit, before: before, after: after)
+	}
+
+	public func fetchUnreadArticlesBetween(folder: Folder, limit: Int?, before: Date?, after: Date?) throws -> Set<Article> {
+		return try fetchUnreadArticlesBetween(forContainer: folder, limit: limit, before: before, after: after)
+	}
+
+	public func fetchUnreadArticlesBetween(webFeeds: Set<WebFeed>, limit: Int?, before: Date?, after: Date?) throws -> Set<Article> {
+		return try fetchUnreadArticlesBetween(feeds: webFeeds, limit: limit, before: before, after: after)
+	}
+
+	public func fetchArticlesBetween(articleIDs: Set<String>, before: Date?, after: Date?) throws -> Set<Article> {
+		return try database.fetchArticlesBetween(articleIDs: articleIDs, before: before, after: after)
 	}
 
 	public func fetchArticles(_ fetchType: FetchType) throws -> Set<Article> {
@@ -832,48 +848,46 @@ public final class Account: DisplayNameProvider, UnreadCountProvider, Container,
 			completion?(nil)
 		}
 	}
-
+	
 	/// Mark articleIDs statuses based on statusKey and flag.
 	/// Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
-	/// Returns a set of new article statuses.
-	func markAndFetchNew(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: ArticleIDsCompletionBlock? = nil) {
+	func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: DatabaseCompletionBlock? = nil) {
 		guard !articleIDs.isEmpty else {
-			completion?(.success(Set<String>()))
+			completion?(nil)
 			return
 		}
-		database.markAndFetchNew(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { result in
-			switch result {
-			case .success(let newArticleStatusIDs):
+		database.mark(articleIDs: articleIDs, statusKey: statusKey, flag: flag) { databaseError in
+			if let databaseError = databaseError {
+				completion?(databaseError)
+			} else {
 				self.noteStatusesForArticleIDsDidChange(articleIDs: articleIDs, statusKey: statusKey, flag: flag)
-				completion?(.success(newArticleStatusIDs))
-			case .failure(let databaseError):
-				completion?(.failure(databaseError))
+				completion?(nil)
 			}
 		}
 	}
 
 	/// Mark articleIDs as read. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
 	/// Returns a set of new article statuses.
-	func markAsRead(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
-		markAndFetchNew(articleIDs: articleIDs, statusKey: .read, flag: true, completion: completion)
+	func markAsRead(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .read, flag: true, completion: completion)
 	}
 
 	/// Mark articleIDs as unread. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
 	/// Returns a set of new article statuses.
-	func markAsUnread(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
-		markAndFetchNew(articleIDs: articleIDs, statusKey: .read, flag: false, completion: completion)
+	func markAsUnread(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .read, flag: false, completion: completion)
 	}
 
 	/// Mark articleIDs as starred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
 	/// Returns a set of new article statuses.
-	func markAsStarred(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
-		markAndFetchNew(articleIDs: articleIDs, statusKey: .starred, flag: true, completion: completion)
+	func markAsStarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .starred, flag: true, completion: completion)
 	}
 
 	/// Mark articleIDs as unstarred. Will create statuses in the database and in memory as needed. Sends a .StatusesDidChange notification.
 	/// Returns a set of new article statuses.
-	func markAsUnstarred(_ articleIDs: Set<String>, completion: ArticleIDsCompletionBlock? = nil) {
-		markAndFetchNew(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
+	func markAsUnstarred(_ articleIDs: Set<String>, completion: DatabaseCompletionBlock? = nil) {
+		mark(articleIDs: articleIDs, statusKey: .starred, flag: false, completion: completion)
 	}
 
 	// Delete the articles associated with the given set of articleIDs
@@ -1149,6 +1163,17 @@ private extension Account {
 			validateUnreadCountsAfterFetchingUnreadArticles(feeds, articles)
 		}
 		
+		return articles
+	}
+
+	func fetchUnreadArticlesBetween(forContainer container: Container, limit: Int?, before: Date?, after: Date?) throws -> Set<Article> {
+		let feeds = container.flattenedWebFeeds()
+		let articles = try database.fetchUnreadArticlesBetween(feeds.webFeedIDs(), limit, before, after)
+		return articles
+	}
+
+	func fetchUnreadArticlesBetween(feeds: Set<WebFeed>, limit: Int?, before: Date?, after: Date?) throws -> Set<Article> {
+		let articles = try database.fetchUnreadArticlesBetween(feeds.webFeedIDs(), limit, before, after)
 		return articles
 	}
 

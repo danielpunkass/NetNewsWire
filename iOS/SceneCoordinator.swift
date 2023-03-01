@@ -15,7 +15,7 @@ import RSTree
 import SafariServices
 
 protocol MainControllerIdentifiable {
-	var mainControllerIdentifer: MainControllerIdentifier { get }
+	var mainControllerIdentifier: MainControllerIdentifier { get }
 }
 
 enum MainControllerIdentifier {
@@ -40,9 +40,11 @@ struct FeedNode: Hashable {
 	var node: Node
 	var feedID: FeedIdentifier
 	
-	init(_ node: Node) {
+	init?(_ node: Node) {
+		guard let feed = node.representedObject as? Feed else { return nil }
+		
 		self.node = node
-		self.feedID = (node.representedObject as! Feed).feedID!
+		self.feedID = feed.feedID!
 	}
 	
 	func hash(into hasher: inout Hasher) {
@@ -108,6 +110,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		}
 	}
 	
+	private var directlyMarkedAsUnreadArticles = Set<Article>()
+	
 	var prefersStatusBarHidden = false
 	
 	private let treeControllerDelegate = WebFeedTreeControllerDelegate()
@@ -126,6 +130,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		activity.userInfo = userInfo
 		return activity
 	}
+	
+	var isNavigationDisabled = false
 	
 	var isRootSplitCollapsed: Bool {
 		return rootSplitViewController.isCollapsed
@@ -326,7 +332,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		NotificationCenter.default.addObserver(self, selector: #selector(accountDidDownloadArticles(_:)), name: .AccountDidDownloadArticles, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground(_:)), name: UIApplication.willEnterForegroundNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(importDownloadedTheme(_:)), name: .didEndDownloadingTheme, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(themeDownloadDidFail(_:)), name: .didFailToImportThemeWithError, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(markStatusCommandDidDirectMarking(_:)), name: .MarkStatusCommandDidDirectMarking, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(markStatusCommandDidUndoDirectMarking(_:)), name: .MarkStatusCommandDidUndoDirectMarking, object: nil)
 	}
 	
 	func restoreWindowState(_ activity: NSUserActivity?) {
@@ -342,6 +349,12 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 					if let feedIdentifier = FeedIdentifier(userInfo: key) {
 						readFilterEnabledTable[feedIdentifier] = readArticlesFilterState[key]
 					}
+				}
+			}
+			
+			if let isSidebarHidden = windowState[UserInfoKey.isSidebarHidden] as? Bool, isSidebarHidden {
+				DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+					self.rootSplitViewController.preferredDisplayMode = .secondaryOnly
 				}
 			}
 
@@ -543,16 +556,28 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		}
 	}
 	
-	@objc func themeDownloadDidFail(_ note: Notification) {
+	@objc func markStatusCommandDidDirectMarking(_ note: Notification) {
 		guard let userInfo = note.userInfo,
-			  let error = userInfo["error"] as? Error else {
-				  return
-			  }
-		DispatchQueue.main.async {
-			self.rootSplitViewController.presentError(error, dismiss: nil)
+			  let articles = userInfo[Account.UserInfoKey.articles] as? Set<Article>,
+			  let statusKey = userInfo[Account.UserInfoKey.statusKey] as? ArticleStatus.Key,
+			  let flag = userInfo[Account.UserInfoKey.statusFlag] as? Bool else { return }
+		
+		if statusKey == .read && flag == false {
+			directlyMarkedAsUnreadArticles.formUnion(articles)
 		}
 	}
 
+	@objc func markStatusCommandDidUndoDirectMarking(_ note: Notification) {
+		guard let userInfo = note.userInfo,
+			  let articles = userInfo[Account.UserInfoKey.articles] as? Set<Article>,
+			  let statusKey = userInfo[Account.UserInfoKey.statusKey] as? ArticleStatus.Key,
+			  let flag = userInfo[Account.UserInfoKey.statusFlag] as? Bool else { return }
+		
+		if statusKey == .read && flag == false {
+			directlyMarkedAsUnreadArticles.subtract(articles)
+		}
+	}
+	
 	// MARK: API
 	
 	func suspend() {
@@ -612,16 +637,32 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		return shadowTable[section].feedNodes.count
 	}
 	
+	func nodeFor(_ section: Int) -> Node? {
+		return treeController.rootNode.childAtIndex(section)
+	}
+	
 	func nodeFor(_ indexPath: IndexPath) -> Node? {
-		guard indexPath.section < shadowTable.count && indexPath.row < shadowTable[indexPath.section].feedNodes.count else {
+		guard indexPath.section > -1 &&
+				indexPath.row > -1 &&
+				indexPath.section < shadowTable.count &&
+				indexPath.row < shadowTable[indexPath.section].feedNodes.count else {
 			return nil
 		}
 		return shadowTable[indexPath.section].feedNodes[indexPath.row].node
 	}
 	
+	func indexPathFor(_ object: AnyObject) -> IndexPath? {
+		guard let node = treeController.rootNode.descendantNodeRepresentingObject(object) else {
+			return nil
+		}
+		return indexPathFor(node)
+	}
+	
 	func indexPathFor(_ node: Node) -> IndexPath? {
+		guard let feedNode = FeedNode(node) else { return nil }
+		
 		for i in 0..<shadowTable.count {
-			if let row = shadowTable[i].feedNodes.firstIndex(of: FeedNode(node)) {
+			if let row = shadowTable[i].feedNodes.firstIndex(of: feedNode) {
 				return IndexPath(row: row, section: i)
 			}
 		}
@@ -856,8 +897,8 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		if let oldTimelineFeed = preSearchTimelineFeed {
 			emptyTheTimeline()
 			timelineFeed = oldTimelineFeed
-			masterTimelineViewController?.reinitializeArticles(resetScroll: true)
 			replaceArticles(with: savedSearchArticles!, animated: true)
+			masterTimelineViewController?.reinitializeArticles(resetScroll: true)
 		} else {
 			setTimelineFeed(nil, animated: true)
 		}
@@ -931,9 +972,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	func selectPrevUnread() {
 		
 		// This should never happen, but I don't want to risk throwing us
-		// into an infinate loop searching for an unread that isn't there.
+		// into an infinite loop searching for an unread that isn't there.
 		if appDelegate.unreadCount < 1 {
 			return
+		}
+		
+		isNavigationDisabled = true
+		defer {
+			isNavigationDisabled = false
 		}
 		
 		if selectPrevUnreadArticleInTimeline() {
@@ -947,9 +993,14 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	func selectNextUnread() {
 		
 		// This should never happen, but I don't want to risk throwing us
-		// into an infinate loop searching for an unread that isn't there.
+		// into an infinite loop searching for an unread that isn't there.
 		if appDelegate.unreadCount < 1 {
 			return
+		}
+		
+		isNavigationDisabled = true
+		defer {
+			isNavigationDisabled = false
 		}
 		
 		if selectNextUnreadArticleInTimeline() {
@@ -963,7 +1014,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 		selectNextUnreadFeed() {
 			self.selectNextUnreadArticleInTimeline()
 		}
-
 	}
 	
 	func scrollOrGoToNextUnread() {
@@ -981,7 +1031,9 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	}
 	
 	func markAllAsRead(_ articles: [Article], completion: (() -> Void)? = nil) {
-		markArticlesWithUndo(articles, statusKey: .read, flag: true, completion: completion)
+		var markableArticles = Set(articles)
+		markableArticles.subtract(directlyMarkedAsUnreadArticles)
+		markArticlesWithUndo(markableArticles, statusKey: .read, flag: true, directlyMarked: false, completion: completion)
 	}
 	
 	func markAllAsReadInTimeline(completion: (() -> Void)? = nil) {
@@ -1029,13 +1081,13 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	
 	func markAsReadForCurrentArticle() {
 		if let article = currentArticle {
-			markArticlesWithUndo([article], statusKey: .read, flag: true)
+			markArticlesWithUndo([article], statusKey: .read, flag: true, directlyMarked: true)
 		}
 	}
 	
 	func markAsUnreadForCurrentArticle() {
 		if let article = currentArticle {
-			markArticlesWithUndo([article], statusKey: .read, flag: false)
+			markArticlesWithUndo([article], statusKey: .read, flag: false, directlyMarked: true)
 		}
 	}
 	
@@ -1047,7 +1099,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	
 	func toggleRead(_ article: Article) {
 		guard !article.status.read || article.isAvailableToMarkUnread else { return }
-		markArticlesWithUndo([article], statusKey: .read, flag: !article.status.read)
+		markArticlesWithUndo([article], statusKey: .read, flag: !article.status.read, directlyMarked: true)
 	}
 
 	func toggleStarredForCurrentArticle() {
@@ -1057,7 +1109,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	}
 	
 	func toggleStar(_ article: Article) {
-		markArticlesWithUndo([article], statusKey: .starred, flag: !article.status.starred)
+		markArticlesWithUndo([article], statusKey: .starred, flag: !article.status.starred, directlyMarked: true)
 	}
 
 	func timelineFeedIsEqualTo(_ feed: WebFeed) -> Bool {
@@ -1094,9 +1146,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 
 		rebuildBackingStores(initialLoad: initialLoad, completion:  {
 			self.treeControllerDelegate.resetFilterExceptions()
-			self.selectFeed(nil) {
-				self.selectFeed(webFeed, animations: animations, completion: completion)
-			}
+			self.selectFeed(webFeed, animations: animations, completion: completion)
 		})
 		
 	}
@@ -1172,13 +1222,6 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	
 	func showAddRedditFeed() {
 		let addNavViewController = UIStoryboard.redditAdd.instantiateInitialViewController() as! UINavigationController
-		addNavViewController.modalPresentationStyle = .formSheet
-		addNavViewController.preferredContentSize = AddFeedViewController.preferredContentSizeForFormSheetDisplay
-		masterFeedViewController.present(addNavViewController, animated: true)
-	}
-	
-	func showAddTwitterFeed() {
-		let addNavViewController = UIStoryboard.twitterAdd.instantiateInitialViewController() as! UINavigationController
 		addNavViewController.modalPresentationStyle = .formSheet
 		addNavViewController.preferredContentSize = AddFeedViewController.preferredContentSizeForFormSheetDisplay
 		masterFeedViewController.present(addNavViewController, animated: true)
@@ -1268,13 +1311,7 @@ class SceneCoordinator: NSObject, UndoableCommandRunner, Logging {
 	}
 	
 	func importTheme(filename: String) {
-		do {
-			try ArticleThemeImporter.importTheme(controller: rootSplitViewController, filename: filename)
-		} catch {
-			NotificationCenter.default.post(name: .didFailToImportThemeWithError, object: nil, userInfo: ["error" : error])
-			logger.error("Failed to import theme with error: \(error.localizedDescription, privacy: .public)")
-		}
-		
+		ArticleThemeImporter.importTheme(controller: rootSplitViewController, filename: filename)
 	}
 	
 	/// This will dismiss the foremost view controller if the user
@@ -1344,9 +1381,9 @@ extension SceneCoordinator: UINavigationControllerDelegate {
 
 		defer {
 			if let mainController = viewController as? MainControllerIdentifiable {
-				lastMainControllerToAppear = mainController.mainControllerIdentifer
+				lastMainControllerToAppear = mainController.mainControllerIdentifier
 			} else if let mainController = (viewController as? UINavigationController)?.topViewController as? MainControllerIdentifiable {
-				lastMainControllerToAppear = mainController.mainControllerIdentifer
+				lastMainControllerToAppear = mainController.mainControllerIdentifier
 			}
 		}
 
@@ -1408,9 +1445,18 @@ private extension SceneCoordinator {
 		navController.toolbar.tintColor = AppAssets.primaryAccentColor
 	}
 
-	func markArticlesWithUndo(_ articles: [Article], statusKey: ArticleStatus.Key, flag: Bool, completion: (() -> Void)? = nil) {
+	func markArticlesWithUndo(_ articles: [Article], statusKey: ArticleStatus.Key, flag: Bool, directlyMarked: Bool, completion: (() -> Void)? = nil) {
+		markArticlesWithUndo(Set(articles), statusKey: statusKey, flag: flag, directlyMarked: directlyMarked, completion: completion)
+	}
+	
+	func markArticlesWithUndo(_ articles: Set<Article>, statusKey: ArticleStatus.Key, flag: Bool, directlyMarked: Bool, completion: (() -> Void)? = nil) {
 		guard let undoManager = undoManager,
-			  let markReadCommand = MarkStatusCommand(initialArticles: articles, statusKey: statusKey, flag: flag, undoManager: undoManager, completion: completion) else {
+			  let markReadCommand = MarkStatusCommand(initialArticles: articles,
+													  statusKey: statusKey,
+													  flag: flag,
+													  directlyMarked: directlyMarked,
+													  undoManager: undoManager,
+													  completion: completion) else {
 			completion?()
 			return
 		}
@@ -1516,10 +1562,12 @@ private extension SceneCoordinator {
 			
 			if isExpanded(sectionNode) {
 				for node in sectionNode.childNodes {
-					feedNodes.append(FeedNode(node))
+					guard let feedNode = FeedNode(node) else { continue }
+					feedNodes.append(feedNode)
 					if isExpanded(node) {
 						for child in node.childNodes {
-							feedNodes.append(FeedNode(child))
+							guard let childNode = FeedNode(child) else { continue }
+							feedNodes.append(childNode)
 						}
 					}
 				}
@@ -1626,13 +1674,6 @@ private extension SceneCoordinator {
 		}
 	}
 
-	func indexPathFor(_ object: AnyObject) -> IndexPath? {
-		guard let node = treeController.rootNode.descendantNodeRepresentingObject(object) else {
-			return nil
-		}
-		return indexPathFor(node)
-	}
-	
 	func setTimelineFeed(_ feed: Feed?, animated: Bool, completion: (() -> Void)? = nil) {
 		timelineFeed = feed
 		
@@ -1933,6 +1974,7 @@ private extension SceneCoordinator {
 	
 	func emptyTheTimeline() {
 		if !articles.isEmpty {
+			directlyMarkedAsUnreadArticles = Set<Article>()
 			replaceArticles(with: Set<Article>(), animated: false)
 		}
 	}
@@ -2003,8 +2045,10 @@ private extension SceneCoordinator {
 		// To be called when we need to do an entire fetch, but an async delay is okay.
 		// Example: we have the Today feed selected, and the calendar day just changed.
 		cancelPendingAsyncFetches()
+		
+		emptyTheTimeline()
+		
 		guard let timelineFeed = timelineFeed else {
-			emptyTheTimeline()
 			completion()
 			return
 		}
@@ -2020,7 +2064,6 @@ private extension SceneCoordinator {
 			self?.replaceArticles(with: articles, animated: animated)
 			completion()
 		}
-		
 	}
 
 	func fetchUnsortedArticlesAsync(for representedObjects: [Any], completion: @escaping ArticleSetBlock) {
@@ -2088,7 +2131,8 @@ private extension SceneCoordinator {
 		return [
 			UserInfoKey.readFeedsFilterState: isReadFeedsFiltered,
 			UserInfoKey.containerExpandedWindowState: containerExpandedWindowState,
-			UserInfoKey.readArticlesFilterState: readArticlesFilterState
+			UserInfoKey.readArticlesFilterState: readArticlesFilterState,
+			UserInfoKey.isSidebarHidden: rootSplitViewController.displayMode == .secondaryOnly
 		]
 	}
 	

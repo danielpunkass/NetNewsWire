@@ -1,6 +1,65 @@
 # iOS Release Notes
 
-### 6.1 TestFlight build 6105 = 6 July 2022
+### 6.1.1 TestFlight build 6114 - 5 Feb 2023
+
+Remove Twitter integration. Include alert that Twitter integration was removed.
+
+### 6.1.1 TestFlight build 6113 - 22 Jan 2023
+
+Fix a crashing bug when fetching data for the widget
+
+### 6.1.1 TestFlight build 6112 - 16 Jan 2023
+
+Add some feeds back to defaults — now an even 10 feeds
+
+### 6.1.1 TestFlight build 6111 - 8 Jan 2023 (didn’t actually go out via TestFlight)
+
+Fixed a crashing bug in the Feeds screen
+Cut way down on number of default feeds, added BBC World News
+
+### 6.1 Release build 6110 - 9 Nov 2022
+
+Changes since 6.0.1…
+
+Article themes. Several themes ship with the app, and you can create your own. You can change the theme in Preferences.
+Fixed a bug that could prevent BazQux syncing when an article may not contain all the info we expect
+Fixed a bug that could prevent Feedly syncing when marking a large number of articles as read
+Disallow creation of iCloud account in the app if iCloud and iCloud Drive aren’t both enabled
+Added links to iCloud Syncing Limitations & Solutions on iCloud Account Management UI
+Copy URLs using repaired, rather than raw, feed links
+Fixed bug showing quote tweets that only included an image
+Video autoplay is now disallowed
+Article view now supports RTL layout
+Fixed a few crashing bugs
+Fixed a layout bug that could happen on returning to the Feeds list
+Fixed a bug where go-to-feed might not properly expand disclosure triangles
+Prevented the Delete option from showing in the Edit menu on the Article View
+Fixed Widget article icon lookup bug
+
+
+### 6.1 TestFlight build 6109 - 31 Oct 2022
+
+Enhanced Widget integration to make counts more accurate
+Enhanced Widget integration to make make it more efficient and save on battery life
+
+### 6.1 TestFlight build 6108 - 28 Oct 2022
+
+Fixed a bug that could prevent BazQux syncing when an article may not contain all the info we expect
+Fixed a bug that could prevent Feedly syncing when marking a large number of articles as read
+Prevent Widget integration from running while in the background to remove some crashes
+
+### 6.1 TestFlight build 6107 - 28 Sept 2022
+
+Added links to iCloud Syncing Limitations & Solutions on iCloud Account Management UI
+Prevented the Delete option from showing in the Edit menu on the Article View
+Greatly reduced the possibility of a background crash caused by Widget integration
+Fixed Widget article icon lookup bug
+
+### 6.1 TestFlight build 6106 - 9 July 2022
+
+Fix a bug where images wouldn’t appear in the widget
+
+### 6.1 TestFlight build 6105 - 6 July 2022
 
 Write widget icons to the shared container
 Make crashes slightly less likely when building up widget data
@@ -26,6 +85,14 @@ Fixed a bug where go-to-feed might not properly expand disclosure triangles
 * Fixed bug showing quote tweets that only included an image.
 * Video autoplay is now disallowed.
 * Article view now supports RTL layout.
+
+### 6.0.2 Release - 15 Oct 2021
+
+Makes a particular crash on startup, that happens only on iPad, far less likely.
+
+### 6.0.2 TestFlight build 610 - 25 Sep 2021
+
+Fixed bug with state restoration on launch (bug introduced in previous TestFlight build)
 
 ### 6.0.1 TestFlight build 608 - 28 Aug 2021
 

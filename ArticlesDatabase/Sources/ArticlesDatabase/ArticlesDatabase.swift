@@ -106,6 +106,14 @@ public final class ArticlesDatabase {
 		return try articlesTable.fetchUnreadArticles(webFeedIDs, limit)
 	}
 
+	public func fetchArticlesBetween(articleIDs: Set<String>, before: Date?, after: Date?) throws -> Set<Article> {
+		return try articlesTable.fetchArticlesBetween(articleIDs: articleIDs, before: before, after: after)
+	}
+
+	public func fetchUnreadArticlesBetween(_ webFeedIDs: Set<String>, _ limit: Int?, _ before: Date?, _ after: Date?) throws -> Set<Article> {
+		return try articlesTable.fetchUnreadArticlesBetween(webFeedIDs, limit, before, after)
+	}
+
 	public func fetchTodayArticles(_ webFeedIDs: Set<String>, _ limit: Int?) throws -> Set<Article> {
 		return try articlesTable.fetchArticlesSince(webFeedIDs, todayCutoffDate(), limit)
 	}
@@ -245,8 +253,8 @@ public final class ArticlesDatabase {
 		return articlesTable.mark(articles, statusKey, flag, completion)
 	}
 
-	public func markAndFetchNew(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: @escaping ArticleIDsCompletionBlock) {
-		articlesTable.markAndFetchNew(articleIDs, statusKey, flag, completion)
+	public func mark(articleIDs: Set<String>, statusKey: ArticleStatus.Key, flag: Bool, completion: DatabaseCompletionBlock?) {
+		articlesTable.mark(articleIDs, statusKey, flag, completion)
 	}
 
 	/// Create statuses for specified articleIDs. For existing statuses, don’t do anything.

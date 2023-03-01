@@ -17,6 +17,7 @@ extension Notification.Name {
 }
 
 protocol SidebarDelegate: AnyObject {
+	var directlyMarkedAsUnreadArticles: Set<Article>? { get }
 	func sidebarSelectionDidChange(_: SidebarViewController, selectedObjects: [AnyObject]?)
 	func unreadCount(for: AnyObject) -> Int
 	func sidebarInvalidatedRestorationState(_: SidebarViewController)
@@ -256,7 +257,11 @@ protocol SidebarDelegate: AnyObject {
 			return
 		}
 		if AppDefaults.shared.feedDoubleClickMarkAsRead, let articles = try? singleSelectedWebFeed?.fetchUnreadArticles() {
-			if let undoManager = undoManager, let markReadCommand = MarkStatusCommand(initialArticles: Array(articles), markingRead: true, undoManager: undoManager) {
+			if let undoManager = undoManager,
+				let markReadCommand = MarkStatusCommand(initialArticles: Array(articles),
+														markingRead: true,
+														directlyMarked: false,
+														undoManager: undoManager) {
 				runCommand(markReadCommand)
 			}
 		}
@@ -371,7 +376,10 @@ protocol SidebarDelegate: AnyObject {
 	}
 
 	func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-		let node = item as! Node
+		guard let node = item as? Node else {
+			assertionFailure("Expected item to be a Node.")
+			return false
+		}
 		return node.isGroupItem
 	}
 
