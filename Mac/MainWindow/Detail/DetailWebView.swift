@@ -44,6 +44,7 @@ final class DetailWebView: WKWebView {
 	override init(frame: CGRect, configuration: WKWebViewConfiguration) {
 		super.init(frame: frame, configuration: configuration)
 		updateObscuredContentInsets()
+		useWebKitFindUI()
 	}
 
 	required init?(coder: NSCoder) {
@@ -114,6 +115,21 @@ final class DetailWebView: WKWebView {
 
 	// Returning false here prevents the "Replace" checkbox from appearing in the find bar
 	override var isEditable: Bool { return false }
+
+	// When NSTextFinder draws the find UI, which is WebKit’s default, WebKit doesn’t
+	// scroll to a match. (See “FIXME: Implement scrollFindMatchToVisible” in WebKit’s
+	// WKTextFinderClient.mm.) Turning off the private _usePlatformFindUI property has WebKit
+	// draw its own find UI and scroll to each match.
+	//
+	// SwiftUI’s WebView does the same thing on macOS (WebKit’s WebPage.swift),
+	// so this can go away if we ever switch to SwiftUI’s WebView.
+	// It has to be set before the first find.
+	private func useWebKitFindUI() {
+		guard responds(to: NSSelectorFromString("_setUsePlatformFindUI:")) else {
+			return
+		}
+		setValue(false, forKey: "usePlatformFindUI")
+	}
 
 }
 

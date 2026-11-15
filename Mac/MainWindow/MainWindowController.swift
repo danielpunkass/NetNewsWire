@@ -281,7 +281,7 @@ final class MainWindowController: NSWindowController, NSUserInterfaceValidations
 		}
 
 		if item.action == #selector(performFindPanelAction(_:)) {
-			return self.detailViewController?.canFindInCurrentArticle ?? false
+			return self.detailViewController?.validateFindPanelAction(item) ?? false
 		}
 
 		return true

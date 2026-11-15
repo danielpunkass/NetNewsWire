@@ -79,6 +79,7 @@ final class DetailWebViewController: NSViewController {
 		static let mouseDidEnter = "mouseDidEnter"
 		static let mouseDidExit = "mouseDidExit"
 		static let windowDidScroll = "windowDidScroll"
+		static let selectionDidChange = "selectionDidChange"
 	}
 
 	override func loadView() {
@@ -88,6 +89,7 @@ final class DetailWebViewController: NSViewController {
 		configuration.userContentController.add(self, name: MessageName.windowDidScroll)
 		configuration.userContentController.add(self, name: MessageName.mouseDidEnter)
 		configuration.userContentController.add(self, name: MessageName.mouseDidExit)
+		configuration.userContentController.add(self, name: MessageName.selectionDidChange)
 
 		webView = DetailWebView(frame: NSRect.zero, configuration: configuration)
 		webView.uiDelegate = self
@@ -181,6 +183,10 @@ final class DetailWebViewController: NSViewController {
 
 	// MARK: Find in Article
 
+	/// Whether any article text is selected, for Use Selection for Find.
+	/// WKWebView has no synchronous way to ask, so the page reports it.
+	private(set) var hasSelectedText = false
+
 	var canFindInArticle: Bool {
 		switch state {
 		case .article(_, _), .extracted(_, _, _):
@@ -203,6 +209,8 @@ extension DetailWebViewController: WKScriptMessageHandler {
 			delegate?.mouseDidEnter(self, link: link)
 		} else if message.name == MessageName.mouseDidExit {
 			delegate?.mouseDidExit(self)
+		} else if message.name == MessageName.selectionDidChange, let hasSelection = message.body as? Bool {
+			hasSelectedText = hasSelection
 		}
 	}
 }
@@ -296,6 +304,7 @@ private extension DetailWebViewController {
 
 	func reloadHTML() {
 		delegate?.mouseDidExit(self)
+		hasSelectedText = false
 
 		let theme = ArticleThemesManager.shared.currentTheme
 		let rendering: ArticleRenderer.Rendering
