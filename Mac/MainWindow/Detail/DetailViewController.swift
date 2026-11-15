@@ -151,8 +151,32 @@ final class DetailViewController: NSViewController, WKUIDelegate {
 		}
 	}
 
+	func validateFindPanelAction(_ item: NSValidatedUserInterfaceItem) -> Bool {
+		guard canFindInCurrentArticle, let findAction = NSTextFinder.Action(rawValue: item.tag) else {
+			return false
+		}
+		if findAction == .setSearchString {
+			// NSTextFinder can’t see the web view’s selection, so it always enables Use Selection for Find.
+			return currentWebViewController.hasSelectedText
+		}
+		return textFinder.validateAction(findAction)
+	}
+
 	var canFindInCurrentArticle: Bool {
 		currentWebViewController.canFindInArticle
+	}
+}
+
+// MARK: - NSMenuItemValidation
+
+extension DetailViewController: NSMenuItemValidation {
+
+	// When the article has focus, the Find menu items are sent here rather than to the window controller.
+	func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+		if menuItem.action == #selector(performFindPanelAction(_:)) {
+			return validateFindPanelAction(menuItem)
+		}
+		return true
 	}
 }
 
